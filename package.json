@@ -1,0 +1,217 @@
+{
+  "name": "opencode-history-sidebar",
+  "displayName": "OpenCode 历史记录",
+  "description": "按文件夹浏览本机 OpenCode 历史记录，在原工作目录打开会话终端。",
+  "publisher": "AlexWonton",
+  "version": "0.1.0",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.144.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/src/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "可只读浏览；打开 OpenCode 终端需要受信任工作区。",
+      "restrictedConfigurations": [
+        "opencodeHistory.enginePath"
+      ]
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test": "npm run compile && node --test out/test/shared*.js out/test/live*.js out/test/ui*.js out/test/preview-follow*.js",
+    "test:extension": "npm run compile && node test/run-extension.cjs",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --target win32-x64 --allow-missing-repository"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opencodeHistory",
+          "title": "OpenCode 历史记录",
+          "icon": "media/opencode.svg"
+        }
+      ]
+    },
+    "views": {
+      "opencodeHistory": [
+        {
+          "id": "opencodeHistory.sessions",
+          "name": "历史记录",
+          "icon": "media/opencode.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "opencodeHistory.refresh",
+        "title": "OpenCode：刷新历史",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "opencodeHistory.search",
+        "title": "OpenCode：搜索标题或文件夹",
+        "icon": "$(search)"
+      },
+      {
+        "command": "opencodeHistory.filter",
+        "title": "OpenCode：筛选归档状态",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "opencodeHistory.chooseEngine",
+        "title": "OpenCode：选择引擎",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "opencodeHistory.restore",
+        "title": "OpenCode：恢复备份",
+        "icon": "$(history)"
+      },
+      {
+        "command": "opencodeHistory.open",
+        "title": "OpenCode：打开会话终端"
+      },
+      {
+        "command": "opencodeHistory.preview",
+        "title": "OpenCode：只读预览"
+      },
+      {
+        "command": "opencodeHistory.openParent",
+        "title": "OpenCode：打开父主会话终端"
+      },
+      {
+        "command": "opencodeHistory.archive",
+        "title": "OpenCode：归档"
+      },
+      {
+        "command": "opencodeHistory.unarchive",
+        "title": "OpenCode：取消归档"
+      },
+      {
+        "command": "opencodeHistory.delete",
+        "title": "OpenCode：删除（可恢复）"
+      },
+      {
+        "command": "opencodeHistory.recoverLegacy",
+        "title": "OpenCode：将旧版记录导入新版"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "opencodeHistory.refresh",
+          "when": "view == opencodeHistory.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "opencodeHistory.search",
+          "when": "view == opencodeHistory.sessions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "opencodeHistory.filter",
+          "when": "view == opencodeHistory.sessions",
+          "group": "navigation@3"
+        },
+        {
+          "command": "opencodeHistory.chooseEngine",
+          "when": "view == opencodeHistory.sessions",
+          "group": "navigation@4"
+        },
+        {
+          "command": "opencodeHistory.restore",
+          "when": "view == opencodeHistory.sessions",
+          "group": "navigation@5"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "opencodeHistory.preview",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /session/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "opencodeHistory.open",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /root/ && !(viewItem =~ /legacy/)",
+          "group": "1_open@2"
+        },
+        {
+          "command": "opencodeHistory.openParent",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /child/ && !(viewItem =~ /legacy/)",
+          "group": "1_open@2"
+        },
+        {
+          "command": "opencodeHistory.archive",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /session/ && !(viewItem =~ /selfArchived/)",
+          "group": "2_manage@1"
+        },
+        {
+          "command": "opencodeHistory.unarchive",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /selfArchived/",
+          "group": "2_manage@1"
+        },
+        {
+          "command": "opencodeHistory.delete",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /session/ && !(viewItem =~ /legacy/)",
+          "group": "3_delete"
+        },
+        {
+          "command": "opencodeHistory.recoverLegacy",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /legacy/",
+          "group": "4_legacy"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpenCode 历史记录",
+      "properties": {
+        "opencodeHistory.enginePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "本机 OpenCode 原生可执行文件的绝对路径。留空自动发现。"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "markdown-it": "15.0.3"
+  },
+  "devDependencies": {
+    "@types/vscode": "1.144.0",
+    "@types/node": "24.19.2",
+    "@types/markdown-it": "14.2.0",
+    "typescript": "7.0.2",
+    "@vscode/vsce": "4.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Great-us/opencode-history-sidebar.git"
+  },
+  "homepage": "https://github.com/Great-us/opencode-history-sidebar",
+  "bugs": {
+    "url": "https://github.com/Great-us/opencode-history-sidebar/issues"
+  },
+  "author": "Great-us",
+  "keywords": [
+    "history",
+    "sessions",
+    "workspace",
+    "opencode"
+  ]
+}

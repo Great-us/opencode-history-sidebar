@@ -1,0 +1,108 @@
+{
+  "info": {
+    "id": "ses_be_parts_0001",
+    "projectID": "global",
+    "title": "backend-fixture-parts",
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1793605192312,
+      "updated": 1793605222312
+    },
+    "location": {
+      "directory": "C:/opencode-history-tests/demo-a"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_be_user_0001",
+      "type": "user",
+      "time": {
+        "created": 1793605202312
+      },
+      "text": "fixture user question",
+      "metadata": {
+        "source": "backend-fixture"
+      }
+    },
+    {
+      "id": "msg_be_asst_0001",
+      "type": "assistant",
+      "time": {
+        "created": 1793605212312,
+        "streamed": 1793605213312,
+        "completed": 1793605217312
+      },
+      "agent": "build",
+      "model": {
+        "providerID": "opencode",
+        "id": "big-pickle"
+      },
+      "finish": "stop",
+      "cost": 0.001,
+      "tokens": {
+        "input": 10,
+        "output": 20,
+        "reasoning": 5,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "fixture reasoning block"
+        },
+        {
+          "type": "text",
+          "text": "fixture assistant answer"
+        },
+        {
+          "type": "tool",
+          "id": "too_be_0001",
+          "name": "read",
+          "executed": true,
+          "state": {
+            "status": "completed",
+            "input": {
+              "filePath": "/x/y.txt"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "file content here"
+              }
+            ],
+            "metadata": {
+              "fixture": 1
+            }
+          },
+          "time": {
+            "created": 1793605214312,
+            "ran": 1793605214412,
+            "completed": 1793605215312
+          }
+        }
+      ]
+    },
+    {
+      "id": "msg_be_comp_0001",
+      "type": "compaction",
+      "time": {
+        "created": 1793605218312
+      },
+      "status": "completed",
+      "reason": "manual",
+      "summary": "fixture compaction summary"
+    }
+  ]
+}
