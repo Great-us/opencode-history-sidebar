@@ -35,7 +35,7 @@ export class HistoryTree implements vscode.TreeDataProvider<HistoryNode>, vscode
       const item = new vscode.TreeItem(node.group.label, vscode.TreeItemCollapsibleState.Expanded);
       item.id = `folder:${node.group.key}`;
       item.description = `${node.group.trees.length}`;
-      item.tooltip = (node.group.path ?? '记录未提供工作目录') + (node.group.trees.some(tree => tree.row.workspace_source === 'own-terminal') ? '\n部分目录来自本扩展终端启动记录' : '');
+      item.tooltip = (node.group.path ?? 'The record has no working directory') + (node.group.trees.some(tree => tree.row.workspace_source === 'own-terminal') ? '\nSome directories come from this extension\'s terminal launch receipts' : '');
       item.iconPath = new vscode.ThemeIcon('folder');
       return item;
     }
@@ -47,23 +47,23 @@ export class HistoryTree implements vscode.TreeDataProvider<HistoryNode>, vscode
     // across a disconnect is explicitly marked unverified — never claimed as
     // currently running.
     const activityBadge = row.running === true
-      ? !this.activityTrusted ? '活动（中断后未证实）'
-        : row.activity_source === 'db-inferred' ? '活动（推断）' : '运行中'
+      ? !this.activityTrusted ? 'Active (unverified after disconnect)'
+        : row.activity_source === 'db-inferred' ? 'Active (inferred)' : 'Running'
       : '';
-    const activityNote = (row.running === true ? '' : '\n当前运行状态：未知（未取得实时运行证据）') +
+    const activityNote = (row.running === true ? '' : '\nCurrent running state: unknown (no live running evidence)') +
       (row.last_busy_at
-        ? `\n最近执行：${row.last_busy_at}${row.last_idle_at ? ` · 最近空闲：${row.last_idle_at}` : ''}（历史记录）`
+        ? `\nLast busy: ${row.last_busy_at}${row.last_idle_at ? ` · Last idle: ${row.last_idle_at}` : ''} (history record)`
         : '');
     const archiveLocal = (row.archive_mode ?? this.archiveMode) === 'local';
-    const archiveLabel = archived ? (archiveLocal ? '已归档（本地）' : '已归档') : '';
-    const legacyLabel = legacy ? `旧版（只读${row.legacy?.recovery_supported === false ? '，暂不可导入' : ''}）` : '';
+    const archiveLabel = archived ? (archiveLocal ? 'Archived (local)' : 'Archived') : '';
+    const legacyLabel = legacy ? `Legacy (read-only${row.legacy?.recovery_supported === false ? ', import unavailable for now' : ''})` : '';
     const item = new vscode.TreeItem(row.title || row.session_id, children.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     item.id = row.session_id;
-    item.description = [row.session_id.slice(-12), legacyLabel, child ? '子记录 · 预览' : '', archiveLabel, contextOnly ? '包含归档子记录' : '', activityBadge, row.workspace_source === 'own-terminal' ? '目录来自启动记录' : ''].filter(Boolean).join(' · ');
-    item.tooltip = `${row.title}\n${row.workspace || '目录未知'}\n${row.session_id}${legacy ? `\n旧版记录：由旧版 OpenCode（写入者 ${row.legacy?.writer_version ?? '未知版本'}）在迁移完成后写入，当前服务端不可见。只读预览与本地归档可用；打开终端或删除前请先执行“将旧版记录导入新版”。${row.legacy?.warning ? `\n${row.legacy.warning}` : ''}` : ''}${activityNote}${row.workspace_source === 'own-terminal' ? '\n目录来自本扩展终端启动记录' : ''}${legacy ? '' : child ? '\n内部子记录不能单独恢复；可从菜单打开父主会话终端。' : row.workspace_source === 'own-terminal' ? '\n点击切回已验证的原终端；此目录不能用来另开会话。' : '\n点击在原工作目录打开或聚焦本会话终端。'}`;
+    item.description = [row.session_id.slice(-12), legacyLabel, child ? 'Child · preview' : '', archiveLabel, contextOnly ? 'Has archived children' : '', activityBadge, row.workspace_source === 'own-terminal' ? 'Directory from launch receipt' : ''].filter(Boolean).join(' · ');
+    item.tooltip = `${row.title}\n${row.workspace || 'Unknown directory'}\n${row.session_id}${legacy ? `\nLegacy record: written by an older OpenCode (writer ${row.legacy?.writer_version ?? 'unknown version'}) after the migration completed; not visible to the current service. Read-only preview and local archiving are available; run "Import Legacy Record into New Version" before opening a terminal or deleting.${row.legacy?.warning ? `\n${row.legacy.warning}` : ''}` : ''}${activityNote}${row.workspace_source === 'own-terminal' ? '\nDirectory comes from this extension\'s terminal launch receipt' : ''}${legacy ? '' : child ? '\nInternal child records cannot be resumed on their own; use the menu to open the parent main session terminal.' : row.workspace_source === 'own-terminal' ? '\nClick to switch back to the verified original terminal; this directory cannot be used to start another session.' : '\nClick to open or focus this session\'s terminal in the original working directory.'}`;
     item.contextValue = `session-${child ? 'child' : 'root'}${row.archived ? '-selfArchived' : ''}${legacy ? '-legacy' : ''}`;
     item.iconPath = new vscode.ThemeIcon(legacy ? 'clock' : child ? 'references' : archived ? 'archive' : 'comment-discussion');
-    item.command = legacy || child ? { command: 'opencodeHistory.preview', title: '只读预览', arguments: [node] } : { command: 'opencodeHistory.open', title: '打开会话终端', arguments: [node] };
+    item.command = legacy || child ? { command: 'opencodeHistory.preview', title: 'Read-only Preview', arguments: [node] } : { command: 'opencodeHistory.open', title: 'Open Session Terminal', arguments: [node] };
     return item;
   }
   getChildren(node?: HistoryNode): HistoryNode[] {
@@ -72,17 +72,17 @@ export class HistoryTree implements vscode.TreeDataProvider<HistoryNode>, vscode
   }
   row(value: HistoryNode | string): CatalogRow {
     const row = typeof value === 'string' ? this.forest.treeById.get(value)?.row : value?.type === 'session' ? value.tree.row : undefined;
-    if (!row) throw new Error('请从 OpenCode 历史记录中选择会话。');
+    if (!row) throw new Error('Select a session from the OpenCode history list.');
     return row;
   }
   parentRoot(row: CatalogRow): CatalogRow {
     let current = row;
     while (current.parent_session_id) {
       const parent = this.forest.treeById.get(current.parent_session_id)?.row;
-      if (!parent) throw new Error('找不到此内部记录的父主会话。');
+      if (!parent) throw new Error('Cannot find the parent main session of this internal record.');
       current = parent;
     }
-    if (current.kind !== 'root') throw new Error('此内部记录没有可恢复的父主会话。');
+    if (current.kind !== 'root') throw new Error('This internal record has no resumable parent main session.');
     return current;
   }
   dispose(): void { this.changed.dispose(); }

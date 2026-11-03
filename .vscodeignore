@@ -7,3 +7,4 @@ package-lock.json
 *.vsix
 .test-sandbox/**
 work/**
+README.md

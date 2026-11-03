@@ -11,8 +11,8 @@ export async function terminalProcessIdentity(pid: number): Promise<ProcessIdent
     execFile(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 15000, maxBuffer: 65536, encoding: 'utf8' }, (error, output) => { if (error) reject(error); else resolve(output); });
   });
   const value: unknown = JSON.parse(stdout.trim().replace(/^\uFEFF/, ''));
-  if (!value || typeof value !== 'object') throw new Error('无法读取本扩展终端进程的身份。');
+  if (!value || typeof value !== 'object') throw new Error('Cannot read the identity of this extension\'s terminal process.');
   const identity = value as Record<string, unknown>;
-  if (typeof identity.executablePath !== 'string' || typeof identity.commandLine !== 'string' || typeof identity.creationDate !== 'string' || !identity.creationDate) throw new Error('本扩展终端进程的身份信息不完整。');
+  if (typeof identity.executablePath !== 'string' || typeof identity.commandLine !== 'string' || typeof identity.creationDate !== 'string' || !identity.creationDate) throw new Error('The identity of this extension\'s terminal process is incomplete.');
   return identity as unknown as ProcessIdentity;
 }

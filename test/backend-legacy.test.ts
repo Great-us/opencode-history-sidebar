@@ -173,7 +173,7 @@ describe("legacy discovery and preview", () => {
     assert.equal(inventory.sessions.some(row => row.session_id === PRE_MIGRATION), false,
       "pre-migration remnant is not a candidate (supervisor rule)");
     assert.equal(inventory.sessions.some(row => row.session_id === LEGACY && row.schema === undefined), false);
-    assert.ok(inventory.warnings.some(warning => warning.includes("旧版记录")),
+    assert.ok(inventory.warnings.some(warning => warning.includes("legacy records")),
       "inventory states the legacy-scope limitation");
   });
 
@@ -224,7 +224,7 @@ describe("legacy recovery", () => {
   test("recovering an already-recovered id is an explicit no-op, never an overwrite", async () => {
     await assert.rejects(() => service.recoverLegacySession(LEGACY), (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.match((error as Error).message, /已被导入|没有可导入的旧版记录/);
+      assert.match((error as Error).message, /No importable legacy record/);
       return true;
     });
     const read = await sandbox.rest("GET", `/api/session/${LEGACY}`);
@@ -237,7 +237,7 @@ describe("legacy recovery", () => {
   test("unsupported shapes refuse conversion with a useful explanation but stay previewable", async () => {
     await assert.rejects(() => service.recoverLegacySession(UNSUPPORTED), (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.match((error as Error).message, /未验证的转换形状/);
+      assert.match((error as Error).message, /were not verified/);
       return true;
     });
     const page = await service.readHistory(UNSUPPORTED);
@@ -262,7 +262,7 @@ describe("legacy recovery", () => {
   test("deleting a legacy row that was never recovered refuses with the recovery route", async () => {
     await assert.rejects(() => service.deleteSession(UNSUPPORTED), (error: unknown) => {
       assert.ok(error instanceof DeleteRefusedError);
-      assert.match((error as DeleteRefusedError).message, /先执行“将旧版记录导入新版”/);
+      assert.match((error as DeleteRefusedError).message, /Import Legacy Record into New Version/);
       return true;
     });
   });
@@ -280,7 +280,7 @@ describe("legacy unsupported-shape raw preview (revision item C)", () => {
     const row = inventory.sessions.find(item => item.session_id === FILEPART)!;
     assert.equal(row.legacy?.recovery_supported, false, "unknown part shape is not conversion-supported");
     await assert.rejects(() => service.recoverLegacySession(FILEPART), (error: unknown) => {
-      assert.match((error as Error).message, /未验证的转换形状/);
+      assert.match((error as Error).message, /were not verified/);
       return true;
     });
   });
@@ -290,7 +290,7 @@ describe("legacy unsupported-shape raw preview (revision item C)", () => {
     const raw = page.entries.map(entry => entry.text).join("\n");
     assert.ok(raw.includes("{ this is not valid json"), "the original corrupt text is shown verbatim, never masked as empty");
     await assert.rejects(() => service.recoverLegacySession(CORRUPT), (error: unknown) => {
-      assert.match((error as Error).message, /未验证的转换形状/);
+      assert.match((error as Error).message, /were not verified/);
       return true;
     });
   });
@@ -309,7 +309,7 @@ describe("corrupt local legacy state (revision item C)", () => {
       assert.ok(inventory.sessions.some(row => row.session_id === v2Baseline), "v2 rows stay fully readable");
       assert.ok(!inventory.sessions.some(row => row.schema === "legacy-v1"),
         "legacy rows are suspended, not silently listed as if the state were empty");
-      assert.ok(inventory.warnings.some(warning => warning.includes("旧版（V1）记录处理已暂停")),
+      assert.ok(inventory.warnings.some(warning => warning.includes("record handling is suspended")),
         "the suspension carries an explicit warning (no silent fake completeness)");
       assert.equal(readFileSync(statePath, "utf8"), damaged, "the damaged state is never overwritten by a read path");
       // A legacy write attempt fails loudly instead of resetting the state.

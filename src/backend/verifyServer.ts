@@ -56,7 +56,7 @@ function assertInsideVerifyRoot(root: string, hostsRoot: string): void {
   const resolvedRoot = resolve(root);
   const resolvedHosts = resolve(hostsRoot);
   if (resolvedRoot !== resolvedHosts && !resolvedRoot.startsWith(resolvedHosts + sep)) {
-    throw new Error(`拒绝删除隔离验证目录之外的路径：${resolvedRoot}`);
+    throw new Error(`Refusing to delete a path outside the isolated verification root: ${resolvedRoot}`);
   }
 }
 
@@ -68,7 +68,7 @@ function ephemeralPort(): Promise<number> {
     listener.listen(0, "127.0.0.1", () => {
       const address = listener.address();
       if (address === null || typeof address === "string") {
-        reject(new Error("无法获取临时端口号。"));
+        reject(new Error("Cannot obtain an ephemeral port."));
         return;
       }
       const port = address.port;
@@ -108,13 +108,13 @@ export async function startVerifyHost(enginePath: string, storagePath: string): 
     if (exited) {
       assertInsideVerifyRoot(root, hostsRoot);
       await rm(root, { recursive: true, force: true });
-      throw new Error(`隔离验证服务启动失败（退出码 ${child.exitCode}）。`);
+      throw new Error(`The isolated verification service failed to start (exit code ${child.exitCode}).`);
     }
     if (Date.now() > deadline) {
       child.kill();
       assertInsideVerifyRoot(root, hostsRoot);
       await rm(root, { recursive: true, force: true });
-      throw new Error("隔离验证服务未在预期时间内就绪。");
+      throw new Error("The isolated verification service did not become ready within the expected time.");
     }
     await new Promise(resolve => setTimeout(resolve, 400));
   }

@@ -117,7 +117,7 @@ describe("cold start", () => {
     const subscription = service.subscribeChanges(() => { batches += 1; });
 
     const inventory = await service.refresh();
-    const warning = inventory.warnings.find(w => w.includes("已由本扩展用官方命令启动"));
+    const warning = inventory.warnings.find(w => w.includes("started it with the official command"));
     assert.ok(warning, `expected own-service-started warning, got: ${JSON.stringify(inventory.warnings)}`);
 
     // Dynamic dedicated port: never the default port.

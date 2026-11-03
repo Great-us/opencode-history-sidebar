@@ -1,9 +1,9 @@
 {
   "name": "opencode-history-sidebar",
-  "displayName": "OpenCode 历史记录",
-  "description": "按文件夹浏览本机 OpenCode 历史记录，在原工作目录打开会话终端。",
+  "displayName": "OpenCode History",
+  "description": "Browse local OpenCode history by workspace folder and reopen session terminals in their original working directory.",
   "publisher": "AlexWonton",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "engines": {
     "vscode": "^1.144.0"
@@ -21,7 +21,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "可只读浏览；打开 OpenCode 终端需要受信任工作区。",
+      "description": "Read-only browsing works in untrusted workspaces; opening an OpenCode terminal requires a trusted workspace.",
       "restrictedConfigurations": [
         "opencodeHistory.enginePath"
       ]
@@ -35,14 +35,14 @@
     "test": "npm run compile && node --test out/test/shared*.js out/test/live*.js out/test/ui*.js out/test/preview-follow*.js",
     "test:extension": "npm run compile && node test/run-extension.cjs",
     "vscode:prepublish": "npm run compile",
-    "package": "vsce package --target win32-x64 --allow-missing-repository"
+    "package": "vsce package --target win32-x64 --readme-path MARKETPLACE.md --allow-missing-repository"
   },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
           "id": "opencodeHistory",
-          "title": "OpenCode 历史记录",
+          "title": "OpenCode History",
           "icon": "media/opencode.svg"
         }
       ]
@@ -51,7 +51,7 @@
       "opencodeHistory": [
         {
           "id": "opencodeHistory.sessions",
-          "name": "历史记录",
+          "name": "History",
           "icon": "media/opencode.svg"
         }
       ]
@@ -59,56 +59,56 @@
     "commands": [
       {
         "command": "opencodeHistory.refresh",
-        "title": "OpenCode：刷新历史",
+        "title": "OpenCode: Refresh History",
         "icon": "$(refresh)"
       },
       {
         "command": "opencodeHistory.search",
-        "title": "OpenCode：搜索标题或文件夹",
+        "title": "OpenCode: Search Titles or Folders",
         "icon": "$(search)"
       },
       {
         "command": "opencodeHistory.filter",
-        "title": "OpenCode：筛选归档状态",
+        "title": "OpenCode: Filter by Archive State",
         "icon": "$(filter)"
       },
       {
         "command": "opencodeHistory.chooseEngine",
-        "title": "OpenCode：选择引擎",
+        "title": "OpenCode: Select Engine",
         "icon": "$(gear)"
       },
       {
         "command": "opencodeHistory.restore",
-        "title": "OpenCode：恢复备份",
+        "title": "OpenCode: Restore Backup",
         "icon": "$(history)"
       },
       {
         "command": "opencodeHistory.open",
-        "title": "OpenCode：打开会话终端"
+        "title": "OpenCode: Open Session Terminal"
       },
       {
         "command": "opencodeHistory.preview",
-        "title": "OpenCode：只读预览"
+        "title": "OpenCode: Read-only Preview"
       },
       {
         "command": "opencodeHistory.openParent",
-        "title": "OpenCode：打开父主会话终端"
+        "title": "OpenCode: Open Parent Main Session Terminal"
       },
       {
         "command": "opencodeHistory.archive",
-        "title": "OpenCode：归档"
+        "title": "OpenCode: Archive"
       },
       {
         "command": "opencodeHistory.unarchive",
-        "title": "OpenCode：取消归档"
+        "title": "OpenCode: Unarchive"
       },
       {
         "command": "opencodeHistory.delete",
-        "title": "OpenCode：删除（可恢复）"
+        "title": "OpenCode: Delete (Recoverable)"
       },
       {
         "command": "opencodeHistory.recoverLegacy",
-        "title": "OpenCode：将旧版记录导入新版"
+        "title": "OpenCode: Import Legacy Record into New Version"
       }
     ],
     "menus": {
@@ -178,13 +178,13 @@
       ]
     },
     "configuration": {
-      "title": "OpenCode 历史记录",
+      "title": "OpenCode History",
       "properties": {
         "opencodeHistory.enginePath": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "description": "本机 OpenCode 原生可执行文件的绝对路径。留空自动发现。"
+          "description": "Absolute path to the native OpenCode executable on this machine. Leave empty for automatic discovery."
         }
       }
     }

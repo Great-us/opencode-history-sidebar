@@ -50,7 +50,7 @@ export function toCatalogRow(info: SessionInfo): CatalogRowLive {
   const directory = info.location?.directory ?? "";
   const row: CatalogRowLive = {
     session_id: info.id,
-    title: info.title && info.title.trim() !== "" ? info.title : "<未命名会话>",
+    title: info.title && info.title.trim() !== "" ? info.title : "<untitled session>",
     workspace: directory,
     parent_session_id: info.parentID ?? null,
     kind: info.parentID ? "child" : "root",
@@ -96,12 +96,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function toolSummary(part: Record<string, unknown>): string {
-  const name = typeof part.name === "string" ? part.name : "未知工具";
+  const name = typeof part.name === "string" ? part.name : "unknown tool";
   const state = asRecord(part.state);
   const status = state !== null && typeof state.status === "string" ? state.status : "unknown";
-  const lines = [`工具调用 ${name}（${status}）`];
+  const lines = [`Tool call ${name} (${status})`];
   if (state !== null && state.input !== undefined) {
-    lines.push("输入：", "```json", safeJson(state.input), "```");
+    lines.push("Input:", "```json", safeJson(state.input), "```");
   }
   const output = state?.content;
   if (Array.isArray(output)) {
@@ -113,7 +113,7 @@ function toolSummary(part: Record<string, unknown>): string {
         return safeJson(record);
       })
       .join("\n");
-    if (text !== "") lines.push("输出：", "```json", text, "```");
+    if (text !== "") lines.push("Output:", "```json", text, "```");
   }
   return lines.join("\n");
 }
@@ -168,7 +168,7 @@ export function toLogEntries(messages: readonly unknown[]): NormalizedPage {
         id: `${id}#unknown`,
         ts,
         role: "system",
-        text: `未识别的消息类型 ${type}（已原样保留）：\n\`\`\`json\n${safeJson(message)}\n\`\`\``,
+        text: `Unrecognized message type ${type} (kept verbatim):\n\`\`\`json\n${safeJson(message)}\n\`\`\``,
       });
       continue;
     }
@@ -184,7 +184,7 @@ export function toLogEntries(messages: readonly unknown[]): NormalizedPage {
       const partId = `${id}#${partIndex}`;
       if (part === null || typeof part.type !== "string") {
         unknown += 1;
-        entries.push({ id: `${partId}?`, ts, role: "system", text: `未识别的消息部件（已原样保留）：\n\`\`\`json\n${safeJson(rawPart)}\n\`\`\`` });
+        entries.push({ id: `${partId}?`, ts, role: "system", text: `Unrecognized message part (kept verbatim):\n\`\`\`json\n${safeJson(rawPart)}\n\`\`\`` });
         produced += 1;
       } else if (part.type === "text" && typeof part.text === "string") {
         entries.push({ id: partId, ts, role: "assistant", text: part.text });
@@ -205,7 +205,7 @@ export function toLogEntries(messages: readonly unknown[]): NormalizedPage {
         produced += 1;
       } else {
         unknown += 1;
-        entries.push({ id: `${partId}?`, ts, role: "system", text: `未识别的部件类型 ${part.type}（已原样保留）：\n\`\`\`json\n${safeJson(part)}\n\`\`\`` });
+        entries.push({ id: `${partId}?`, ts, role: "system", text: `Unrecognized part type ${part.type} (kept verbatim):\n\`\`\`json\n${safeJson(part)}\n\`\`\`` });
         produced += 1;
       }
       partIndex += 1;

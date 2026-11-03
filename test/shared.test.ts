@@ -67,8 +67,8 @@ test("OpenCode session ids are ses-prefixed, not UUIDs; argv resumes one exact s
   assert.ok(!isOpenCodeSessionId("se"));
   assert.deepEqual(sessionArgv("ses_e64d402ecffeKOwM16Ewfp7yo5", "C:\\synthetic\\demo-a"), ["C:\\synthetic\\demo-a", "--session", "ses_e64d402ecffeKOwM16Ewfp7yo5"]);
   assert.deepEqual(sessionArgv("ses_probe_A_0001", "C:\\synthetic\\demo-a", ["--server", "http://127.0.0.1:1"]), ["--server", "http://127.0.0.1:1", "C:\\synthetic\\demo-a", "--session", "ses_probe_A_0001"]);
-  assert.throws(() => sessionArgv("resume", "C:\\synthetic"), /不是有效的 OpenCode 会话 ID/);
-  assert.throws(() => sessionArgv("ses_probe_A_0001", "  "), /原工作目录/);
+  assert.throws(() => sessionArgv("resume", "C:\\synthetic"), /Not a valid OpenCode session ID/);
+  assert.throws(() => sessionArgv("ses_probe_A_0001", "  "), /original working directory/);
 });
 
 test("preview merges beyond 2000 entries with no cap and folds later revisions", () => {

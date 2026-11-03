@@ -124,21 +124,21 @@ function canonicalJson(value: unknown): string {
  */
 function messageMismatch(expected: readonly unknown[], actual: readonly unknown[], label: string): string | null {
   if (expected.length !== actual.length) {
-    return `${label}消息数量不一致（期望 ${expected.length}，实际 ${actual.length}）`;
+    return `${label}message count mismatch (expected ${expected.length}, actual ${actual.length})`;
   }
   for (let index = 0; index < expected.length; index += 1) {
     const want = expected[index] as Record<string, unknown> | null;
     const got = actual[index] as Record<string, unknown> | null;
-    if (want?.id !== got?.id) return `${label}第 ${index + 1} 条消息 ID 不一致`;
-    if (want?.type !== got?.type) return `${label}第 ${index + 1} 条消息类型不一致`;
+    if (want?.id !== got?.id) return `${label}message ${index + 1} ID mismatch`;
+    if (want?.type !== got?.type) return `${label}message ${index + 1} type mismatch`;
     const wantText = typeof want?.text === "string" ? want.text : textFromContent(want?.content);
     const gotText = typeof got?.text === "string" ? got.text : textFromContent(got?.content);
-    if (wantText !== gotText) return `${label}第 ${index + 1} 条消息正文不一致`;
+    if (wantText !== gotText) return `${label}message ${index + 1} body text mismatch`;
     if (canonicalJson(want?.content) !== canonicalJson(got?.content)) {
-      return `${label}第 ${index + 1} 条消息部件/工具内容不一致`;
+      return `${label}message ${index + 1} part/tool content mismatch`;
     }
     if (canonicalJson(want) !== canonicalJson(got)) {
-      return `${label}第 ${index + 1} 条消息结构/元数据不一致`;
+      return `${label}message ${index + 1} structure/metadata mismatch`;
     }
   }
   return null;
@@ -163,7 +163,7 @@ export class CatalogService {
 
   constructor(options: CatalogServiceOptions) {
     if (typeof options.storagePath !== "string" || options.storagePath === "") {
-      throw new Error("后端需要扩展私有存储目录（storagePath）。");
+      throw new Error("The backend requires the extension's private storage directory (storagePath).");
     }
     this.storagePath = options.storagePath;
     this.env = effectiveEnv(options.env);
@@ -217,22 +217,22 @@ export class CatalogService {
       legacy = readLegacyCandidates(this.env, local.tombstoneIds(), local.archivedIds());
       rows.push(...legacy.candidates.map(candidate => candidate.row));
     } catch (error) {
-      legacy = { candidates: [], v1Ids: new Set<string>(), warnings: [`旧版（V1）记录处理已暂停（本地状态不可用，未做任何写入）：${errorMessage(error)}`] };
+      legacy = { candidates: [], v1Ids: new Set<string>(), warnings: [`Legacy (V1) record handling is suspended (local state unavailable; nothing was written): ${errorMessage(error)}`] };
     }
 
     const engine = await this.resolveEngine(false);
     const warnings: string[] = [];
     if (this.connection.startedByExtension()) {
-      warnings.push("OpenCode 后台服务此前未运行，已由本扩展用官方命令启动；现有用户服务未被改动。");
+      warnings.push("The OpenCode background service was not running before; this extension started it with the official command. Existing user services were not modified.");
     }
     const status = this.channel.current();
     if (status.state === "degraded") {
-      warnings.push("实时事件流当前中断（正在自动重连）；数据以最近一次成功读取为准。");
+      warnings.push("The live event stream is currently interrupted (reconnecting automatically); data reflects the last successful read.");
     }
     warnings.push(...status.warnings);
     warnings.push(...legacy.warnings);
     if (legacy.candidates.length > 0) {
-      warnings.push(`发现 ${legacy.candidates.length} 条旧版记录，可预览或归档。继续会话或删除前，请先右键选择“将旧版记录导入新版”。`);
+      warnings.push(`Found ${legacy.candidates.length} legacy records; they can be previewed or archived. Before continuing a session or deleting, right-click and choose "Import Legacy Record into New Version" first.`);
     }
     this.channel.noteReconciled(Date.now(), statBaseline);
     const inventory: CatalogInventory & { sessions: CatalogRowLive[] } = {
@@ -269,7 +269,7 @@ export class CatalogService {
     }
     const page = value as Paged<unknown> | null;
     if (page === null || typeof page !== "object" || !Array.isArray(page.data)) {
-      throw new OpenCodeApiError(`会话 ${sessionId} 的历史返回格式不符合预期（缺少 data 数组）。`);
+      throw new OpenCodeApiError(`The history for session ${sessionId} returned an unexpected shape (missing data array).`);
     }
     const normalized = toLogEntries(page.data);
     // The server keeps offering a trailing cursor past the last row; an empty
@@ -278,7 +278,7 @@ export class CatalogService {
     return {
       entries: normalized.entries,
       next_cursor: hasNext ? page.cursor!.next! : null,
-      warning: normalized.unknown > 0 ? `${normalized.unknown} 条消息/部件使用了未知格式，已按原始 JSON 显示。` : null,
+      warning: normalized.unknown > 0 ? `${normalized.unknown} messages/parts used an unknown format and are shown as raw JSON.` : null,
     };
   }
 
@@ -332,7 +332,7 @@ export class CatalogService {
     return {
       entries: normalized.entries,
       next_cursor: null,
-      warning: normalized.unknown > 0 ? `${normalized.unknown} 条旧版消息/部件未在已验证形状内或已损坏，已按原始 JSON 显示（可预览，不可转换）。` : null,
+      warning: normalized.unknown > 0 ? `${normalized.unknown} legacy messages/parts are outside the verified shapes or damaged; they are shown as raw JSON (previewable, not convertible).` : null,
     };
   }
 
@@ -360,14 +360,14 @@ export class CatalogService {
         { archived },
       );
       if (status !== 204 && status !== 200) {
-        throw new OpenCodeApiError(`归档设置未确认（HTTP ${status}）。`, status);
+        throw new OpenCodeApiError(`The archive setting was not confirmed (HTTP ${status}).`, status);
       }
       // Read-after-write: the state must actually be on the server.
       const { value } = await this.connection.call<unknown>("GET", `/api/session/${encodeURIComponent(sessionId)}`);
       const info = unwrapData<SessionInfo | null>(value);
       const onServer = typeof info?.time?.archived === "number";
       if (onServer !== archived) {
-        throw new OpenCodeApiError(`归档设置后服务器状态与请求不一致（期望 ${archived ? "已归档" : "未归档"}）。`);
+        throw new OpenCodeApiError(`After setting the archive state, the server state does not match the request (expected ${archived ? "archived" : "not archived"}).`);
       }
       return;
     } catch (error) {
@@ -378,7 +378,7 @@ export class CatalogService {
           // Legacy rows archive locally by contract; native API never sees them.
           await local.setArchived(sessionId, archived);
           if (local.isArchived(sessionId) !== archived) {
-            throw new OpenCodeApiError("旧版记录的本地归档状态写入后校验失败。");
+            throw new OpenCodeApiError("The legacy record's local archive state failed verification after being written.");
           }
           return;
         }
@@ -414,11 +414,11 @@ export class CatalogService {
       const legacy = readLegacyCandidates(this.env, local.tombstoneIds(), local.archivedIds());
       if (legacy.candidates.some(candidate => candidate.row.session_id === sessionId)) {
         throw new DeleteRefusedError(
-          "旧版（V1）记录没有官方删除通路，直写旧表被禁止。请先执行“将旧版记录导入新版”，再对转换后的新版会话做可恢复删除。原始旧版行会保留在私有原始备份中。",
+          "Legacy (V1) records have no official delete route, and writing the old tables directly is forbidden. Run \"Import Legacy Record into New Version\" first, then perform a recoverable delete on the converted new-version session. The original legacy row is preserved in the private raw backup.",
           null,
         );
       }
-      throw new OpenCodeApiError(`要删除的会话不存在：${sessionId}`);
+      throw new OpenCodeApiError(`The session to delete does not exist: ${sessionId}`);
     }
     const scope: SessionInfo[] = [];
     const collect = (id: string): void => {
@@ -431,7 +431,7 @@ export class CatalogService {
     if (inUseIds !== undefined) {
       const blocked = scope.map(info => info.id).filter(id => inUseIds.has(id));
       if (blocked.length > 0) {
-        throw new DeleteRefusedError(`以下会话的 OpenCode 终端仍在本扩展中打开，请先关闭后再删除：${blocked.join("、")}`, null);
+        throw new DeleteRefusedError(`The OpenCode terminals for the following sessions are still open in this extension; close them before deleting: ${blocked.join(", ")}`, null);
       }
     }
     // Confirmed-active sessions refuse the deletion up front (positive
@@ -440,7 +440,7 @@ export class CatalogService {
     const activeEarly = await this.activeEvidenceIds();
     const activeBlockedEarly = scope.map(info => info.id).filter(id => activeEarly.has(id));
     if (activeBlockedEarly.length > 0) {
-      throw new DeleteRefusedError(`以下会话正在运行（服务端实时证据），请等待其完成后再删除：${activeBlockedEarly.join("、")}`, null);
+      throw new DeleteRefusedError(`The following sessions are running (live server evidence); wait for them to finish before deleting: ${activeBlockedEarly.join(", ")}`, null);
     }
 
     // Backup, parent first, with a live completeness baseline per member.
@@ -470,10 +470,10 @@ export class CatalogService {
       await this.backups.write({
         ...backup,
         status: "partial",
-        message: `导出不完整（会话 ${incomplete.join("、")} 存在导出未包含的消息或缺原目录），已拒绝删除。备份保留，未执行任何删除。`,
+        message: `Export incomplete (sessions ${incomplete.join(", ")} have messages the export did not include, or lack the original directory); deletion refused. The backup is retained; nothing was deleted.`,
       });
       throw new DeleteRefusedError(
-        `无法证明备份完整（会话 ${incomplete.join("、")} 的导出缺少未完成消息或缺原目录），已拒绝删除；没有任何数据被删除。恢复备份 ${backup.backup_id} 已保留。`,
+        `Backup completeness cannot be proven (the exports for sessions ${incomplete.join(", ")} are missing unfinished messages or the original directory); deletion refused; no data was deleted. Recovery backup ${backup.backup_id} is retained.`,
         backup.backup_id,
       );
     }
@@ -485,10 +485,10 @@ export class CatalogService {
       await this.backups.write({
         ...backup,
         status: "partial",
-        message: `隔离恢复验证未通过（${verification.error}），已拒绝删除。备份保留，未执行任何删除。`,
+        message: `Isolated recovery verification failed (${verification.error}); deletion refused. The backup is retained; nothing was deleted.`,
       });
       throw new DeleteRefusedError(
-        `备份在隔离验证环境中恢复失败（${verification.error}），已拒绝删除；没有任何数据被删除。恢复备份 ${backup.backup_id} 已保留。`,
+        `The backup failed to restore in the isolated verification environment (${verification.error}); deletion refused; no data was deleted. Recovery backup ${backup.backup_id} is retained.`,
         backup.backup_id,
       );
     }
@@ -506,10 +506,10 @@ export class CatalogService {
       await this.backups.write({
         ...backup,
         status: "partial",
-        message: `删除前复检无法完成，已拒绝删除：${errorMessage(error)}。备份保留，未执行任何删除。`,
+        message: `The pre-delete recheck could not complete; deletion refused: ${errorMessage(error)}. The backup is retained; nothing was deleted.`,
       });
       throw new DeleteRefusedError(
-        `删除前复检无法完成（${errorMessage(error)}），已拒绝删除；没有任何数据被删除。恢复备份 ${backup.backup_id} 已保留，可重试（重试将从完整新备份开始）。`,
+        `The pre-delete recheck could not complete (${errorMessage(error)}); deletion refused; no data was deleted. Recovery backup ${backup.backup_id} is retained; you may retry (a retry starts from a complete fresh backup).`,
         backup.backup_id,
       );
     }
@@ -526,9 +526,9 @@ export class CatalogService {
       await this.backups.write({
         ...backup,
         status: "partial",
-        message: `删除请求失败，执行结果无法确认：${errorMessage(error)}。恢复备份 ${backup.backup_id} 已保留。`,
+        message: `The delete request failed and its outcome cannot be confirmed: ${errorMessage(error)}. Recovery backup ${backup.backup_id} is retained.`,
       });
-      return { status: "partial", message: `删除请求结果无法确认：${errorMessage(error)}。备份 ${backup.backup_id} 已保留，未执行自动补删。`, backup_id: backup.backup_id, deleted_session_ids: [] };
+      return { status: "partial", message: `The delete request outcome cannot be confirmed: ${errorMessage(error)}. Backup ${backup.backup_id} is retained; no automatic follow-up delete was performed.`, backup_id: backup.backup_id, deleted_session_ids: [] };
     }
 
     // Post-delete verification: only conclusively-absent ids count as
@@ -543,22 +543,22 @@ export class CatalogService {
       await this.backups.write({
         ...backup,
         status: "partial",
-        message: `部分会话删除后仍存在或无法核验：${survivors.join("、")}。恢复备份 ${backup.backup_id} 已保留；未执行自动补删，重试将从完整新备份开始。`,
+        message: `Some sessions still exist or cannot be verified after deletion: ${survivors.join(", ")}. Recovery backup ${backup.backup_id} is retained; no automatic follow-up delete was performed, and a retry starts from a complete fresh backup.`,
       });
       await this.tombstoneV1Counterparts(scope.map(info => info.id).filter(id => !survivors.includes(id)));
       return {
         status: "partial",
-        message: `删除未完全生效或无法核验：${survivors.join("、")} 仍在服务器上或无法确认。备份 ${backup.backup_id} 已保留；未执行自动补删，重试将从完整新备份开始。`,
+        message: `The deletion did not fully take effect or cannot be verified: ${survivors.join(", ")} are still on the server or cannot be confirmed. Backup ${backup.backup_id} is retained; no automatic follow-up delete was performed, and a retry starts from a complete fresh backup.`,
         backup_id: backup.backup_id,
         deleted_session_ids: scope.map(info => info.id).filter(id => !survivors.includes(id)),
       };
     }
     const deleted = scope.map(info => info.id);
     await this.tombstoneV1Counterparts(deleted);
-    await this.backups.write({ ...backup, status: "available", message: "删除已完成，备份可用于恢复。" });
+    await this.backups.write({ ...backup, status: "available", message: "Deletion completed; the backup is available for recovery." });
     return {
       status: "deleted",
-      message: `已删除 ${deleted.length} 个会话（含子会话）。私有本地备份 ${backup.backup_id} 可从“恢复备份”还原。`,
+      message: `Deleted ${deleted.length} sessions (including child sessions). The private local backup ${backup.backup_id} can be restored from "Restore Backup".`,
       backup_id: backup.backup_id,
       deleted_session_ids: deleted,
     };
@@ -587,14 +587,14 @@ export class CatalogService {
     for (const member of backup.members) {
       const envelope = envelopes.find(item => item.info.id === member.session_id);
       if (envelope === undefined) {
-        await this.backups.write({ ...backup, status: "partial", message: `备份缺少会话 ${member.session_id} 的导出信封，已拒绝删除。备份保留。` });
-        throw new DeleteRefusedError(`备份不完整：缺少会话 ${member.session_id} 的导出信封，已拒绝删除；没有任何数据被删除。`, backup.backup_id);
+        await this.backups.write({ ...backup, status: "partial", message: `The backup is missing the export envelope for session ${member.session_id}; deletion refused. The backup is retained.` });
+        throw new DeleteRefusedError(`Backup incomplete: the export envelope for session ${member.session_id} is missing; deletion refused; no data was deleted.`, backup.backup_id);
       }
       const liveNow = await this.readAllMessages(member.session_id);
-      const mismatch = messageMismatch(envelope.messages, liveNow, `会话 ${member.session_id}：`);
+      const mismatch = messageMismatch(envelope.messages, liveNow, `session ${member.session_id}: `);
       if (mismatch !== null) {
-        await this.backups.write({ ...backup, status: "partial", message: `备份期间会话内容发生变化（${mismatch}），已拒绝删除。备份保留。` });
-        throw new DeleteRefusedError(`备份期间会话内容发生变化（${mismatch}），已拒绝删除；没有任何数据被删除。可刷新后重试。`, backup.backup_id);
+        await this.backups.write({ ...backup, status: "partial", message: `Session content changed during the backup (${mismatch}); deletion refused. The backup is retained.` });
+        throw new DeleteRefusedError(`Session content changed during the backup (${mismatch}); deletion refused; no data was deleted. Refresh and retry.`, backup.backup_id);
       }
     }
     // Pending inbox (revision item G): the plain export does not carry pending
@@ -602,15 +602,15 @@ export class CatalogService {
     // unreadable inbox also refuses — absence of proof is never proof.
     const inboxPending = await this.pendingInboxIds(backup);
     if (inboxPending.length > 0) {
-      await this.backups.write({ ...backup, status: "partial", message: `以下会话仍有待处理输入（inbox 非空），已拒绝删除。备份保留。` });
-      throw new DeleteRefusedError(`以下会话仍有待处理输入（inbox 非空，普通导出不包含这些内容），请等待其处理完成后再删除：${inboxPending.join("、")}`, backup.backup_id);
+      await this.backups.write({ ...backup, status: "partial", message: `The following sessions still have pending input (non-empty inbox); deletion refused. The backup is retained.` });
+      throw new DeleteRefusedError(`The following sessions still have pending input (non-empty inbox; a plain export does not include it); wait for it to finish before deleting: ${inboxPending.join(", ")}`, backup.backup_id);
     }
     // Confirmed-active sessions refuse the delete at the last moment too.
     const activeNow = await this.activeEvidenceIds();
     const activeBlockedNow = scope.map(info => info.id).filter(id => activeNow.has(id));
     if (activeBlockedNow.length > 0) {
-      await this.backups.write({ ...backup, status: "partial", message: `备份期间以下会话开始运行：${activeBlockedNow.join("、")}，已拒绝删除。备份保留。` });
-      throw new DeleteRefusedError(`备份期间以下会话开始运行（服务端实时证据），请等待其完成后再删除：${activeBlockedNow.join("、")}`, backup.backup_id);
+      await this.backups.write({ ...backup, status: "partial", message: `The following sessions started running during the backup: ${activeBlockedNow.join(", ")}; deletion refused. The backup is retained.` });
+      throw new DeleteRefusedError(`The following sessions started running during the backup (live server evidence); wait for them to finish before deleting: ${activeBlockedNow.join(", ")}`, backup.backup_id);
     }
 
     const allNow = await pageAll<SessionInfo>(
@@ -620,8 +620,8 @@ export class CatalogService {
     const byIdNow = new Map(allNow.map(info => [info.id, info]));
     const backupMembers = new Map(backup.members.map(member => [member.session_id, member]));
     if (!byIdNow.has(sessionId)) {
-      await this.backups.write({ ...backup, status: "partial", message: "备份期间要删除的会话已消失，已拒绝删除。备份保留。" });
-      throw new DeleteRefusedError(`备份期间会话 ${sessionId} 已不存在，已拒绝删除；没有任何数据被删除。可刷新后重试。`, backup.backup_id);
+      await this.backups.write({ ...backup, status: "partial", message: "The session to delete disappeared during the backup; deletion refused. The backup is retained." });
+      throw new DeleteRefusedError(`Session ${sessionId} no longer exists after the backup; deletion refused; no data was deleted. Refresh and retry.`, backup.backup_id);
     }
     const scopeNow: SessionInfo[] = [];
     const collectNow = (id: string): void => {
@@ -638,23 +638,23 @@ export class CatalogService {
       await this.backups.write({
         ...backup,
         status: "partial",
-        message: `备份期间删除范围发生变化（新增 ${addedIds.join("、") || "无"}；消失 ${missingIds.join("、") || "无"}），已拒绝删除。备份保留。`,
+        message: `The delete scope changed during the backup (added: ${addedIds.join(", ") || "none"}; missing: ${missingIds.join(", ") || "none"}); deletion refused. The backup is retained.`,
       });
       throw new DeleteRefusedError(
-        `备份期间删除范围已变化：新增会话 ${addedIds.join("、") || "无"}不在已验证备份内（级联删除将无法恢复它们），已消失会话 ${missingIds.join("、") || "无"}。已拒绝本次删除；没有任何数据被删除。可刷新后重试（重试将从完整新备份开始）。`,
+        `The delete scope changed during the backup: added sessions ${addedIds.join(", ") || "none"} are not in the verified backup (a cascade delete could not recover them), and sessions ${missingIds.join(", ") || "none"} disappeared. This deletion was refused; no data was deleted. Refresh and retry (a retry starts from a complete fresh backup).`,
         backup.backup_id,
       );
     }
     for (const member of scopeNow) {
       const recorded = backupMembers.get(member.id)!;
       if ((member.parentID ?? null) !== recorded.parent_session_id) {
-        await this.backups.write({ ...backup, status: "partial", message: `备份期间会话 ${member.id} 的父子关系发生变化，已拒绝删除。备份保留。` });
-        throw new DeleteRefusedError(`备份期间会话 ${member.id} 的父子关系发生变化（备份记录父 ${recorded.parent_session_id ?? "无"}，当前 ${member.parentID ?? "无"}），已拒绝删除；没有任何数据被删除。可刷新后重试。`, backup.backup_id);
+        await this.backups.write({ ...backup, status: "partial", message: `The parent/child relation of session ${member.id} changed during the backup; deletion refused. The backup is retained.` });
+        throw new DeleteRefusedError(`The parent/child relation of session ${member.id} changed during the backup (backup recorded parent ${recorded.parent_session_id ?? "none"}, now ${member.parentID ?? "none"}); deletion refused; no data was deleted. Refresh and retry.`, backup.backup_id);
       }
       const envelope = await this.backups.envelope(backup.backup_id, recorded);
       if (canonicalJson(retainedSessionMetadata(member)) !== canonicalJson(retainedSessionMetadata(envelope.info))) {
-        await this.backups.write({ ...backup, status: "partial", message: `备份期间会话 ${member.id} 的目录、归档或其他保留元数据发生变化，已拒绝删除。备份保留。` });
-        throw new DeleteRefusedError(`备份期间会话 ${member.id} 的目录、归档或其他保留元数据发生变化，已拒绝删除；没有任何数据被删除。`, backup.backup_id);
+        await this.backups.write({ ...backup, status: "partial", message: `The directory, archive state, or other retained metadata of session ${member.id} changed during the backup; deletion refused. The backup is retained.` });
+        throw new DeleteRefusedError(`The directory, archive state, or other retained metadata of session ${member.id} changed during the backup; deletion refused; no data was deleted.`, backup.backup_id);
       }
     }
   }
@@ -706,7 +706,7 @@ export class CatalogService {
           location: { directory: this.env.APPDATA ?? process.env.APPDATA ?? process.cwd() },
         });
         if (stubbed.status !== 200) {
-          return { ok: false, error: `范围外父级 ${parent} 在隔离环境无法预置（HTTP ${stubbed.status}）` };
+          return { ok: false, error: `Out-of-scope parent ${parent} could not be seeded in the isolated environment (HTTP ${stubbed.status})` };
         }
       }
       for (const member of backup.members) {
@@ -717,21 +717,21 @@ export class CatalogService {
           location: envelope.info.location ?? undefined,
         });
         if (imported.status !== 200) {
-          return { ok: false, error: `会话 ${member.session_id} 在隔离环境导入失败（HTTP ${imported.status}）` };
+          return { ok: false, error: `Session ${member.session_id} failed to import in the isolated environment (HTTP ${imported.status})` };
         }
         const read = await verifyCall(host, "GET", `/api/session/${encodeURIComponent(member.session_id)}`);
         const info = unwrapData<SessionInfo | null>(read.value);
         if (info === null || info.id !== member.session_id) {
-          return { ok: false, error: `会话 ${member.session_id} 在隔离环境读回失败` };
+          return { ok: false, error: `Session ${member.session_id} could not be read back in the isolated environment` };
         }
         if ((info.parentID ?? null) !== member.parent_session_id) {
-          return { ok: false, error: `会话 ${member.session_id} 的父子关系在隔离环境不一致` };
+          return { ok: false, error: `The parent/child relation of session ${member.session_id} is inconsistent in the isolated environment` };
         }
         if ((typeof info.time?.archived === "number") !== member.archived) {
-          return { ok: false, error: `会话 ${member.session_id} 的归档状态在隔离环境不一致` };
+          return { ok: false, error: `The archive state of session ${member.session_id} is inconsistent in the isolated environment` };
         }
         if ((info.location?.directory ?? "") !== member.directory) {
-          return { ok: false, error: `会话 ${member.session_id} 的原目录在隔离环境不一致` };
+          return { ok: false, error: `The original directory of session ${member.session_id} is inconsistent in the isolated environment` };
         }
         // Resume-card fix: the readback used to be a single `limit=100` request,
         // so a session with more than 100 messages could never verify (and a
@@ -741,9 +741,9 @@ export class CatalogService {
         try {
           page = await this.verifyHostAllMessages(host, member.session_id);
         } catch (error) {
-          return { ok: false, error: `会话 ${member.session_id} 在隔离环境消息读回失败：${errorMessage(error)}` };
+          return { ok: false, error: `Reading the messages of session ${member.session_id} back in the isolated environment failed: ${errorMessage(error)}` };
         }
-        const mismatch = messageMismatch(envelope.messages, page, `会话 ${member.session_id} 在隔离环境：`);
+        const mismatch = messageMismatch(envelope.messages, page, `session ${member.session_id} in isolation: `);
         if (mismatch !== null) return { ok: false, error: mismatch };
       }
       return { ok: true };
@@ -792,13 +792,13 @@ export class CatalogService {
       }
     }
     const problems = [
-      ...conflicts.map(id => `会话 ${id} 已存在，未覆盖`),
-      ...failures.map(failure => `会话 ${failure.id} 恢复失败：${failure.error}`),
+      ...conflicts.map(id => `Session ${id} already exists and was not overwritten`),
+      ...failures.map(failure => `Session ${failure.id} failed to restore: ${failure.error}`),
     ];
     const status = problems.length === 0 ? "restored" : "partial";
     const message = problems.length === 0
-      ? `已恢复 ${restored.length} 个会话（含子会话关系、归档状态与消息）。`
-      : `恢复了 ${restored.length} 个会话；${problems.join("；")}。`;
+      ? `Restored ${restored.length} sessions (including child-session relations, archive state, and messages).`
+      : `Restored ${restored.length} sessions; ${problems.join("; ")}.`;
     if (status === "restored") {
       await this.backups.write({ ...manifest, status: "restored", message });
     } else if (restored.length > 0 || conflicts.length > 0) {
@@ -811,16 +811,16 @@ export class CatalogService {
   private async verifyRestored(member: BackupManifest["members"][number], envelope: SessionExport): Promise<{ ok: true } | { ok: false; error: string }> {
     const { value } = await this.connection.call<unknown>("GET", `/api/session/${encodeURIComponent(member.session_id)}`);
     const info = unwrapData<SessionInfo | null>(value);
-    if (info === null || info.id !== member.session_id) return { ok: false, error: "恢复后读取不到相同 ID 的会话" };
+    if (info === null || info.id !== member.session_id) return { ok: false, error: "After restore, no session with the same ID could be read" };
     if ((info.parentID ?? null) !== member.parent_session_id) {
-      return { ok: false, error: `父子关系不符（期望父 ${member.parent_session_id ?? "无"}，实际 ${info.parentID ?? "无"}）` };
+      return { ok: false, error: `Parent/child relation mismatch (expected parent ${member.parent_session_id ?? "none"}, actual ${info.parentID ?? "none"})` };
     }
     if ((typeof info.time?.archived === "number") !== member.archived) {
-      return { ok: false, error: "归档状态未按备份恢复" };
+      return { ok: false, error: "The archive state was not restored according to the backup" };
     }
     const restoredDirectory = info.location?.directory ?? "";
     if (restoredDirectory !== member.directory) {
-      return { ok: false, error: `原目录未恢复（期望 ${member.directory || "（无）"}，实际 ${restoredDirectory || "（无）"}）` };
+      return { ok: false, error: `Original directory not restored (expected ${member.directory || "(none)"}, actual ${restoredDirectory || "(none)"})` };
     }
     const page = await this.readAllMessages(member.session_id);
     const mismatch = messageMismatch(envelope.messages, page, "");
@@ -845,21 +845,21 @@ export class CatalogService {
     const legacy = readLegacyCandidates(this.env, local.tombstoneIds(), local.archivedIds());
     const candidate = legacy.candidates.find(item => item.row.session_id === sessionId);
     if (candidate === undefined) {
-      throw new OpenCodeApiError(`没有可导入的旧版记录：${sessionId}（可能已被导入、隐藏，或不是迁移后旧版写入）。`);
+      throw new OpenCodeApiError(`No importable legacy record: ${sessionId} (it may already have been imported, be hidden, or not be a post-migration legacy write).`);
     }
     const { messages, error } = readLegacyMessages(this.env, sessionId);
     if (error !== null) throw new OpenCodeApiError(error);
     const analysis = analyzeForRecovery(messages);
     if (!analysis.supported) {
       throw new OpenCodeApiError(
-        `旧版记录 ${sessionId} 含未验证的转换形状，拒绝导入以避免内容损失：${analysis.warnings.join("；")}。该记录仍可只读预览。`,
+        `Legacy record ${sessionId} contains conversion shapes that were not verified; the import is refused to avoid content loss: ${analysis.warnings.join("; ")}. The record remains available for read-only preview.`,
       );
     }
     // Conflict check: an existing v2 row with the same id is never overwritten.
     if (!(await this.sessionGone(sessionId))) {
       return {
         status: "partial",
-        message: `会话 ${sessionId} 已存在于新版，未覆盖（官方导入对同 ID 返回 409）。`,
+        message: `Session ${sessionId} already exists in the new version and was not overwritten (the official import returns 409 for the same ID).`,
         restored_session_ids: [],
       };
     }
@@ -875,7 +875,7 @@ export class CatalogService {
     const isolation = await this.verifyLegacyConversionInIsolation(payload);
     if (!isolation.ok) {
       throw new OpenCodeApiError(
-        `旧版记录 ${sessionId} 的转换在隔离验证环境未通过（${isolation.error}），已拒绝导入以避免内容损失。原始行与原始备份（${rawBackupPath}）保留；该记录仍可只读预览。`,
+        `The conversion of legacy record ${sessionId} did not pass the isolated verification environment (${isolation.error}); the import is refused to avoid content loss. The original rows and raw backup (${rawBackupPath}) are retained; the record remains available for read-only preview.`,
       );
     }
     await this.connection.call<unknown>("POST", "/api/experimental/session/import", {
@@ -887,33 +887,33 @@ export class CatalogService {
     const { value } = await this.connection.call<unknown>("GET", `/api/session/${encodeURIComponent(sessionId)}`);
     const info = unwrapData<SessionInfo | null>(value);
     if (info === null || info.id !== sessionId) {
-      return { status: "partial", message: `旧版记录 ${sessionId} 导入后无法读回。原始行与原始备份（${rawBackupPath}）保留。`, restored_session_ids: [] };
+      return { status: "partial", message: `Legacy record ${sessionId} could not be read back after the import. The original rows and raw backup (${rawBackupPath}) are retained.`, restored_session_ids: [] };
     }
     if ((info.location?.directory ?? "") !== candidate.raw.directory) {
-      return { status: "partial", message: `旧版记录 ${sessionId} 导入后目录不符（期望 ${candidate.raw.directory}，实际 ${info.location?.directory ?? "（无）"}）。原始行保留。`, restored_session_ids: [] };
+      return { status: "partial", message: `Legacy record ${sessionId} has a wrong directory after the import (expected ${candidate.raw.directory}, actual ${info.location?.directory ?? "(none)"}). The original rows are retained.`, restored_session_ids: [] };
     }
     const readback = await this.readAllMessages(sessionId);
     const expected = payload.messages as Array<Record<string, unknown>>;
     if (readback.length !== expected.length) {
-      return { status: "partial", message: `旧版记录 ${sessionId} 导入后消息数量不符（期望 ${expected.length}，实际 ${readback.length}）。原始行保留。`, restored_session_ids: [] };
+      return { status: "partial", message: `Legacy record ${sessionId} has a wrong message count after the import (expected ${expected.length}, actual ${readback.length}). The original rows are retained.`, restored_session_ids: [] };
     }
     for (let index = 0; index < expected.length; index += 1) {
       const want = expected[index];
       const got = readback[index] as Record<string, unknown>;
       if (want.id !== got.id || want.type !== got.type) {
-        return { status: "partial", message: `旧版记录 ${sessionId} 导入后第 ${index + 1} 条消息 ID/类型不符。原始行保留。`, restored_session_ids: [] };
+        return { status: "partial", message: `Legacy record ${sessionId} has a mismatched message ${index + 1} ID/type after the import. The original rows are retained.`, restored_session_ids: [] };
       }
       const wantText = typeof want.text === "string" ? want.text : textFromContent(want.content);
       const gotText = typeof got.text === "string" ? String(got.text) : textFromContent(got.content);
       if (wantText !== gotText) {
-        return { status: "partial", message: `旧版记录 ${sessionId} 导入后第 ${index + 1} 条消息正文不符。原始行保留。`, restored_session_ids: [] };
+        return { status: "partial", message: `Legacy record ${sessionId} has a mismatched message ${index + 1} body after the import. The original rows are retained.`, restored_session_ids: [] };
       }
     }
     // The row is now a normal v2 session; the local archive marker no longer applies.
     await local.clearArchive(sessionId);
     return {
       status: "restored",
-      message: `旧版记录 ${sessionId} 已按官方转换语义导入新版（原目录、ID、消息保真；time.updated 变为导入时刻属预期）。原 V1 行未改动；原始行备份保存在扩展私有目录。`,
+      message: `Legacy record ${sessionId} was imported into the new version following the official conversion semantics (original directory, ID, and message fidelity; time.updated becoming the import moment is expected). The original V1 rows were not modified; the raw row backup is kept in the extension's private directory.`,
       restored_session_ids: [sessionId],
     };
   }
@@ -936,31 +936,31 @@ export class CatalogService {
         location: payload.location,
       });
       if (imported.status !== 200) {
-        return { ok: false, error: `隔离环境官方导入失败（HTTP ${imported.status}）` };
+        return { ok: false, error: `Official import failed in the isolated environment (HTTP ${imported.status})` };
       }
       const read = await verifyCall(host, "GET", `/api/session/${encodeURIComponent(payload.info.id)}`);
       const info = unwrapData<SessionInfo | null>(read.value);
       if (info === null || info.id !== payload.info.id) {
-        return { ok: false, error: "隔离环境导入后无法读回相同 ID 的会话" };
+        return { ok: false, error: "After the isolated import, no session with the same ID could be read back" };
       }
       if ((info.location?.directory ?? "") !== payload.location.directory) {
-        return { ok: false, error: `隔离环境目录不符（期望 ${payload.location.directory}，实际 ${info.location?.directory ?? "（无）"}）` };
+        return { ok: false, error: `Directory mismatch in the isolated environment (expected ${payload.location.directory}, actual ${info.location?.directory ?? "(none)"})` };
       }
       const readback = await this.verifyHostAllMessages(host, payload.info.id);
       const expected = payload.messages as Array<Record<string, unknown>>;
       if (readback.length !== expected.length) {
-        return { ok: false, error: `隔离环境消息数量不符（期望 ${expected.length}，实际 ${readback.length}）` };
+        return { ok: false, error: `Message count mismatch in the isolated environment (expected ${expected.length}, actual ${readback.length})` };
       }
       for (let index = 0; index < expected.length; index += 1) {
         const want = expected[index];
         const got = readback[index] as Record<string, unknown>;
         if (want.id !== got.id || want.type !== got.type) {
-          return { ok: false, error: `隔离环境第 ${index + 1} 条消息 ID/类型不符` };
+          return { ok: false, error: `Message ${index + 1} ID/type mismatch in the isolated environment` };
         }
         const wantText = typeof want.text === "string" ? want.text : textFromContent(want.content);
         const gotText = typeof got.text === "string" ? String(got.text) : textFromContent(got.content);
         if (wantText !== gotText) {
-          return { ok: false, error: `隔离环境第 ${index + 1} 条消息正文不符` };
+          return { ok: false, error: `Message ${index + 1} body mismatch in the isolated environment` };
         }
       }
       return { ok: true };
@@ -979,7 +979,7 @@ export class CatalogService {
 
   async setEnginePath(path: string): Promise<void> {
     const info = await stat(path).catch(() => undefined);
-    if (info === undefined || !info.isFile()) throw new Error(`所选引擎路径不存在或不是文件：${path}`);
+    if (info === undefined || !info.isFile()) throw new Error(`The selected engine path does not exist or is not a file: ${path}`);
     this.enginePath = path;
     await saveEngineChoice(this.storagePath, path);
   }
@@ -990,7 +990,7 @@ export class CatalogService {
       this.enginePath = choice !== null && choice !== "" ? choice : await discoverEngine(this.env);
     }
     if ((this.enginePath === null || this.enginePath === "") && throwOnMissing) {
-      throw new Error("找不到本机 OpenCode 原生引擎。请在“选择引擎”中指定 opencode.exe 的绝对路径。");
+      throw new Error("Cannot find the native OpenCode engine on this machine. Specify the absolute path to opencode.exe in \"Select Engine\".");
     }
     return this.enginePath ?? null;
   }
@@ -1028,7 +1028,7 @@ export class CatalogService {
   // ------------------------------------------------------------------ utils ---
 
   private assertLive(): void {
-    if (this.disposed) throw new Error("后端已释放。");
+    if (this.disposed) throw new Error("The backend has been disposed.");
   }
 
   private async messageIds(sessionId: string): Promise<string[]> {

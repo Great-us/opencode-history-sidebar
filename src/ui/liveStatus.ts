@@ -89,7 +89,7 @@ export class LiveHistoryController {
   observeChannel(): void {
     const channel = this.options.channel.liveStatus();
     if (channel.state === 'degraded' && this.status.link !== 'reconnecting') {
-      this.dispatch({ type: 'link-lost', error: channel.warnings[0] ?? '事件流中断' });
+      this.dispatch({ type: 'link-lost', error: channel.warnings[0] ?? 'Event stream interrupted' });
     } else if (channel.state !== 'degraded' && this.status.link === 'reconnecting') {
       this.dispatch({ type: 'link-restored' });
       // Recovery reconciliation: a brand-new snapshot must land before the

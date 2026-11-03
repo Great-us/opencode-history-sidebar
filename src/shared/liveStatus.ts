@@ -110,12 +110,12 @@ export function liveWantsRefresh(status: LiveStatus): boolean {
  * extra timer).
  */
 export function liveStatusLabel(status: LiveStatus, now: number): string {
-  if (status.refreshing) return "正在刷新…";
-  if (status.link === "reconnecting") return "连接中断，正在恢复…";
-  if (!status.fresh) return status.link === "starting" ? "正在读取…" : "数据可能过期";
-  if (status.lastRefreshAt === null) return "已更新";
+  if (status.refreshing) return "Refreshing…";
+  if (status.link === "reconnecting") return "Connection lost, recovering…";
+  if (!status.fresh) return status.link === "starting" ? "Reading…" : "Data may be outdated";
+  if (status.lastRefreshAt === null) return "Updated";
   const seconds = Math.max(0, Math.round((now - status.lastRefreshAt) / 1000));
-  if (seconds < 5) return "实时 · 更新于 刚刚";
-  if (seconds < 90) return `实时 · 更新于 ${seconds} 秒前`;
-  return `实时 · 更新于 ${new Date(status.lastRefreshAt).toLocaleTimeString()}`;
+  if (seconds < 5) return "Live · updated just now";
+  if (seconds < 90) return `Live · updated ${seconds} seconds ago`;
+  return `Live · updated at ${new Date(status.lastRefreshAt).toLocaleTimeString()}`;
 }

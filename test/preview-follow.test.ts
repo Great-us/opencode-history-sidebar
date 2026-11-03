@@ -56,7 +56,7 @@ test("legacy rows are identified separately and never summed into the normal V2 
   assert.equal(isLegacyRow(v2a), false);
   assert.equal(isLegacyRow(legacy), true);
   // 58 V2 + 1 legacy is described as two populations, never "59 sessions".
-  assert.equal(describeCatalogCounts([v2a, v2b, legacy]), "2 条会话 · 1 条旧版记录");
-  assert.equal(describeCatalogCounts([v2a, v2b]), "2 条会话");
+  assert.equal(describeCatalogCounts([v2a, v2b, legacy]), "2 sessions · 1 legacy record");
+  assert.equal(describeCatalogCounts([v2a, v2b]), "2 sessions");
   assert.equal(legacy.archive_mode, "local", "legacy archive is a local mark on the row");
 });

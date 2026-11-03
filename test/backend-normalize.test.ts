@@ -36,7 +36,7 @@ test("a child session row carries its parent id and kind", () => {
   const row = toCatalogRow({ id: "ses_row_0002", parentID: "ses_row_0001", time: { created: 1 }, location: { directory: process.cwd() } });
   assert.equal(row.kind, "child");
   assert.equal(row.parent_session_id, "ses_row_0001");
-  assert.equal(row.title, "<未命名会话>");
+  assert.equal(row.title, "<untitled session>");
 });
 
 test("messages normalize in order with role/text/tool fidelity and no truncation", () => {
@@ -48,7 +48,7 @@ test("messages normalize in order with role/text/tool fidelity and no truncation
   assert.equal(page.entries[1].text, "fixture reasoning block");
   assert.equal(page.entries[2].text, "fixture assistant answer");
   const tool = page.entries[3];
-  assert.match(tool.text, /read（completed）/);
+  assert.match(tool.text, /read \(completed\)/);
   assert.match(tool.text, /\/x\/y\.txt/);
   assert.match(tool.text, /file content here/);
   assert.equal(page.entries[4].text, "fixture compaction summary");

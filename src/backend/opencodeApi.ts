@@ -118,7 +118,7 @@ export async function serviceCall<T>(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    throw new OpenCodeApiError(`无法连接 OpenCode 后台服务（${method} ${path}）：${error instanceof Error ? error.message : String(error)}`);
+    throw new OpenCodeApiError(`Cannot connect to the OpenCode background service (${method} ${path}): ${error instanceof Error ? error.message : String(error)}`);
   }
   const text = await response.text();
   let value: T | null = null;
@@ -131,7 +131,7 @@ export async function serviceCall<T>(
   }
   if (!response.ok) {
     const detail = extractError(value) ?? text.slice(0, 200);
-    throw new OpenCodeApiError(`OpenCode 服务请求失败（HTTP ${response.status}，${method} ${path}）：${detail}`, response.status, path);
+    throw new OpenCodeApiError(`OpenCode service request failed (HTTP ${response.status}, ${method} ${path}): ${detail}`, response.status, path);
   }
   return { status: response.status, value, text };
 }
@@ -209,7 +209,7 @@ export class OpenCodeServiceConnection {
   private async startServiceAndConnect(): Promise<ServiceHandle> {
     const engine = await this.enginePath();
     if (engine === null) {
-      throw new OpenCodeApiError("没有可用的 OpenCode 后台服务，且找不到本机 OpenCode 原生引擎来自行启动。请在设置中选择引擎路径。");
+      throw new OpenCodeApiError("No OpenCode background service is available, and no native OpenCode engine was found on this machine to start one. Select the engine path in the settings.");
     }
     const exit = await new Promise<{ code: number | null; stderr: string }>(resolve => {
       const child = spawn(engine, ["service", "start"], {
@@ -223,7 +223,7 @@ export class OpenCodeServiceConnection {
       child.on("close", code => resolve({ code, stderr }));
     });
     if (exit.code !== 0) {
-      throw new OpenCodeApiError(`启动 OpenCode 后台服务失败（退出码 ${exit.code ?? "未知"}）${exit.stderr ? "：" + exit.stderr.slice(0, 300) : ""}`);
+      throw new OpenCodeApiError(`Starting the OpenCode background service failed (exit code ${exit.code ?? "unknown"})${exit.stderr ? ": " + exit.stderr.slice(0, 300) : ""}`);
     }
     const deadline = Date.now() + SERVICE_START_TIMEOUT_MS;
     let delay = 250;
@@ -237,7 +237,7 @@ export class OpenCodeServiceConnection {
       await new Promise(resolve => setTimeout(resolve, delay));
       delay = Math.min(2000, delay * 2);
     }
-    throw new OpenCodeApiError("OpenCode 后台服务已在启动，但未在预期时间内就绪。请稍后刷新。");
+    throw new OpenCodeApiError("The OpenCode background service is starting but did not become ready within the expected time. Refresh again shortly.");
   }
 
   async call<T>(method: string, path: string, body?: unknown, query?: Record<string, string>): Promise<{ status: number; value: T | null; text: string }> {
@@ -271,13 +271,13 @@ export async function pageAll<T>(
     const { value } = await call(query);
     const page = value as Paged<T> | null;
     if (page === null || typeof page !== "object" || !Array.isArray(page.data)) {
-      throw new OpenCodeApiError("服务返回的列表格式不符合预期（缺少 data 数组）。");
+      throw new OpenCodeApiError("The service returned a list in an unexpected shape (missing data array).");
     }
     rows.push(...page.data);
     const next = page.cursor?.next;
     if (typeof next !== "string" || next === "") break;
     if (seenCursors.has(next)) {
-      throw new OpenCodeApiError(`分页游标出现重复（${next.slice(0, 48)}），疑似服务端分页异常；已中止而不是返回不完整结果。`);
+      throw new OpenCodeApiError(`A paging cursor repeated (${next.slice(0, 48)}), which suggests a server-side paging anomaly; aborted instead of returning an incomplete result.`);
     }
     seenCursors.add(next);
     cursor = next;
@@ -312,7 +312,7 @@ export async function subscribeServiceEvents(
       signal: controller.signal,
     });
     if (!response.ok || response.body === null) {
-      throw new OpenCodeApiError(`订阅 OpenCode 事件流失败（HTTP ${response.status}）。`, response.status, "/api/event");
+      throw new OpenCodeApiError(`Subscribing to the OpenCode event stream failed (HTTP ${response.status}).`, response.status, "/api/event");
     }
     settled = true;
     const reader = response.body.getReader();
@@ -340,7 +340,7 @@ export async function subscribeServiceEvents(
             }
           }
         }
-        onDown("事件流已结束。");
+        onDown("The event stream ended.");
       } catch (error) {
         if (!(error instanceof Error && error.name === "AbortError")) onDown(error instanceof Error ? error.message : String(error));
       }
@@ -358,7 +358,7 @@ export async function exportSession(connection: OpenCodeServiceConnection, sessi
   const { value } = await connection.call<unknown>("GET", `/api/experimental/session/${encodeURIComponent(sessionId)}/export`);
   const envelope = unwrapData<SessionExport>(value);
   if (envelope === null || typeof envelope !== "object" || !envelope.info || !Array.isArray(envelope.messages)) {
-    throw new OpenCodeApiError(`会话 ${sessionId} 的导出结果不完整（缺少 info 或 messages）。`);
+    throw new OpenCodeApiError(`The export for session ${sessionId} is incomplete (missing info or messages).`);
   }
   return envelope;
 }

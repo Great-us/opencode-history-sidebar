@@ -187,9 +187,9 @@ async function uiShakedown(evidence: Record<string, unknown>): Promise<void> {
   const terminals = new SessionTerminals('synthetic-owner', () => Promise.resolve('C:\\synthetic\\opencode.exe'), state);
   const syntheticRow = previewRow('ses_e64d402ecffeKOwM16Ewfp7yo5');
   assert.equal((await terminals.withOwnedWorkspaces([syntheticRow]))[0].workspace_source, undefined, 'no receipt must mean no inferred folder');
-  await assert.rejects(terminals.open(syntheticRow), /原工作目录不存在/);
-  await assert.rejects(terminals.open({ ...syntheticRow, session_id: '11111111-1111-4111-8111-111111111111', workspace: 'C:\\Windows' } as CatalogRow), /不是有效的 OpenCode 会话 ID/);
-  await assert.rejects(terminals.open({ ...syntheticRow, schema: 'legacy-v1', legacy: { writer_version: '1.19.5', recovery_supported: true } }), /旧版记录只读/, 'legacy rows never open a native terminal directly');
+  await assert.rejects(terminals.open(syntheticRow), /original working directory does not exist/);
+  await assert.rejects(terminals.open({ ...syntheticRow, session_id: '11111111-1111-4111-8111-111111111111', workspace: 'C:\\Windows' } as CatalogRow), /Not a valid OpenCode session ID/);
+  await assert.rejects(terminals.open({ ...syntheticRow, schema: 'legacy-v1', legacy: { writer_version: '1.19.5', recovery_supported: true } }), /Legacy records are read-only/, 'legacy rows never open a native terminal directly');
   terminals.dispose();
   // 2. Preview: cursor paging with no truncation plus live follow merge.
   const extensionUri = vscode.extensions.getExtension('AlexWonton.opencode-history-sidebar')!.extensionUri;
@@ -204,8 +204,8 @@ async function uiShakedown(evidence: Record<string, unknown>): Promise<void> {
   assert.equal(paged.entries.length, 2410);
   await paged.follow();
   assert.equal(paged.entries.length >= 2410, true, 'a live follow re-reads the loaded window and replaces it');
-  assert.match(paged.html(), /只读预览/);
-  assert.match(paged.html(), /更新于/);
+  assert.match(paged.html(), /Read-only preview/);
+  assert.match(paged.html(), /Updated at/);
   paged.panel.dispose();
   evidence.uiPreviewPagingAndFollow = { readCursors: readCalls, entries: paged.entries.length };
   // 3. Dirty-follow (final task card): a catalog notification that lands while
@@ -298,7 +298,7 @@ async function uiShakedown(evidence: Record<string, unknown>): Promise<void> {
     await withTimeout(waitFor('hint-driven follow lands', 15000, async () => hinted.tailOffered ? hinted : undefined), 20000, 'hint follow');
     assert.equal(hinted.tailOffered, true, 'a real change signal offers the unloaded tail honestly');
     assert.equal(hinted.tailReason, 'maybe');
-    assert.match(hinted.html(), /可能还有未加载的新内容/);
+    assert.match(hinted.html(), /may have unloaded new content/);
     await hinted.loadLatest();
     assert.equal(hinted.entries.length, 121, 'the one-step button still reaches the very end');
     hinted.panel.dispose();
@@ -508,7 +508,7 @@ async function runPrimary(api: ExtensionApi, evidence: Record<string, unknown>, 
   await importSession(rest2, envelope(ids.B, 'eh-B', dirs.b,
     texts('B message', 65, index => index === 58 ? 'tail updated by external writer' : undefined), null), `${ids.B} reimport`);
   const tailLatency = await pollUntil('modified tail visible AND tail offer shown without manual refresh', 25000,
-    () => previewB.html().includes('tail updated by external writer') && previewB.html().includes('加载到最新'));
+    () => previewB.html().includes('tail updated by external writer') && previewB.html().includes('Load to Latest'));
   evidence.previewTailOfferLatencyMs = tailLatency;
   assert.equal(previewB.tailOffered, true, 'the unloaded tail is explicitly offered, never silently "fresh"');
   // One explicit user step reaches the very end.
@@ -722,7 +722,7 @@ async function runReloadPhase(api: ExtensionApi, evidence: Record<string, unknow
   const allReceipts = api.globalState.get<Array<{ pid: number }>>('terminalReceipts.v1', []);
   assert.equal(allReceipts.some(receipt => receipt.pid === checkpoint.sentinelPid), false, 'no receipt ever claimed the unrelated sentinel terminal');
   // The corrupt receipt (birth mismatch on a live pid) is REFUSED.
-  await assert.rejects(api.terminals.open(api.tree.row(checkpoint.corruptReceiptFor)), /无法确认重载后已有 OpenCode 终端/, 'a mismatched identity field must refuse adoption');
+  await assert.rejects(api.terminals.open(api.tree.row(checkpoint.corruptReceiptFor)), /Cannot confirm the ownership of the existing OpenCode terminal/, 'a mismatched identity field must refuse adoption');
   assert.equal(vscode.window.terminals.length, terminalsBeforeOpen, 'the refusal created no duplicate terminal either');
   // Per-field refusal on in-memory corrupted receipts (executablePath,
   // commandLine, creationDate): each mismatch alone blocks adoption.
@@ -740,7 +740,7 @@ async function runReloadPhase(api: ExtensionApi, evidence: Record<string, unknow
   const unknown = new SessionTerminals(api.globalState.get<string>('terminalOwner')!, () => Promise.resolve(config.enginePath), new MemoryMemento(api.globalState), { env: config.env, extraArgs: config.extraArgs });
   try {
     (terminalProcessModule as unknown as { terminalProcessIdentity: unknown }).terminalProcessIdentity = async () => { throw new Error('Synthetic CIM unavailable'); };
-    await assert.rejects(unknown.open(api.tree.row(checkpoint.aSessionId)), /无法确认重载后已有 OpenCode 终端|归属/, 'unknown identity must refuse rather than duplicate');
+    await assert.rejects(unknown.open(api.tree.row(checkpoint.aSessionId)), /Cannot confirm the ownership of the existing OpenCode terminal/, 'unknown identity must refuse rather than duplicate');
     assert.equal(vscode.window.terminals.length, terminalsBeforeOpen, 'unknown identity created no duplicate');
   } finally {
     (terminalProcessModule as unknown as { terminalProcessIdentity: unknown }).terminalProcessIdentity = realIdentity;
@@ -851,7 +851,7 @@ async function runLegacyPhase(api: ExtensionApi, evidence: Record<string, unknow
   const expectedV2 = [ids.A, ids.B, ids.CHILD, ids.C, ids.D].every(id => inventory.sessions.some(row => row.session_id === id));
   assert.ok(expectedV2, 'the v2 sessions from the earlier phases are still there');
   const countsLabel = describeCatalogCounts(inventory.sessions);
-  assert.equal(countsLabel, `${inventory.sessions.length - 2} 条会话 · 2 条旧版记录`, 'counts stay split, never merged');
+  assert.equal(countsLabel, `${inventory.sessions.length - 2} sessions · 2 legacy records`, 'counts stay split, never merged');
   const okRow = api.tree.row(LEGACY_OK) as CatalogRow;
   assert.equal(okRow.schema, 'legacy-v1');
   assert.equal(okRow.legacy?.recovery_supported, true);
@@ -860,9 +860,9 @@ async function runLegacyPhase(api: ExtensionApi, evidence: Record<string, unknow
   assert.equal(badRow.legacy?.recovery_supported, false, 'the unknown-part row is marked non-convertible');
   const tree = api.tree;
   const okItem = tree.getTreeItem({ type: 'session', tree: tree.forest.treeById.get(LEGACY_OK)! });
-  assert.match(String(okItem.description), /旧版（只读）/, 'the tree badges legacy rows');
+  assert.match(String(okItem.description), /Legacy \(read-only\)/, 'the tree badges legacy rows');
   const badItem = tree.getTreeItem({ type: 'session', tree: tree.forest.treeById.get(LEGACY_BAD)! });
-  assert.match(String(badItem.description), /暂不可导入/, 'the unsupported shape says so in the badge');
+  assert.match(String(badItem.description), /import unavailable for now/, 'the unsupported shape says so in the badge');
   evidence.legacyDiscovery = { countsLabel, legacyIds: legacyRows.map(row => row.session_id) };
 
   // --- readonly preview through the production readHistory (404 -> legacy) ---
@@ -870,7 +870,7 @@ async function runLegacyPhase(api: ExtensionApi, evidence: Record<string, unknow
   assert.ok(preview, 'legacy preview opened');
   await pollUntil('legacy preview loaded', 20000, () => preview.entries.length > 0);
   assert.equal(preview.cursor, null, 'a legacy transcript has no paging cursor');
-  assert.match(preview.html(), /旧版记录（只读预览）/, 'the preview states its readonly nature');
+  assert.match(preview.html(), /Legacy record \(read-only preview\)/, 'the preview states its readonly nature');
   assert.ok(preview.html().includes(`legacy user body ${LEGACY_OK}`), 'the legacy body renders');
   preview.panel.dispose();
   const badPreview = await vscode.commands.executeCommand('opencodeHistory.preview', LEGACY_BAD) as HistoryPreview;
@@ -891,7 +891,7 @@ async function runLegacyPhase(api: ExtensionApi, evidence: Record<string, unknow
     const annotated = tree.groups.flatMap(group => group.trees).find(node => node.row.session_id === LEGACY_OK);
     assert.ok(annotated, 'the archived legacy row stays reachable under the 全部 filter');
     const archivedItem = tree.getTreeItem({ type: 'session', tree: annotated });
-    assert.match(String(archivedItem.description), /已归档（本地）/, 'the badge says the archive is local');
+    assert.match(String(archivedItem.description), /Archived \(local\)/, 'the badge says the archive is local');
   } finally {
     tree.filter = previousFilter;
     tree.update();
@@ -899,9 +899,9 @@ async function runLegacyPhase(api: ExtensionApi, evidence: Record<string, unknow
   evidence.legacyLocalArchive = true;
 
   // --- production guards: delete/recover on legacy rows refuse with the route ---
-  await assert.rejects(api.deleteSession(LEGACY_BAD, true), /先执行“将旧版记录导入新版”/, 'deleting an unrecovered legacy row refuses');
+  await assert.rejects(api.deleteSession(LEGACY_BAD, true), /Import Legacy Record into New Version/, 'deleting an unrecovered legacy row refuses');
   const recoverBad = await api.catalog.recoverLegacySession(LEGACY_BAD).then(() => 'restored', error => String(error instanceof Error ? error.message : error));
-  assert.match(recoverBad, /未验证的转换形状/, 'the unsupported shape refuses conversion with a reason');
+  assert.match(recoverBad, /were not verified/, 'the unsupported shape refuses conversion with a reason');
 
   // --- recoverLegacy -> native V2 row (production handler, Test/Development hook) ---
   const result = await withTimeout(api.recoverLegacy(LEGACY_OK, true), 120000, 'recoverLegacySession');
@@ -913,7 +913,7 @@ async function runLegacyPhase(api: ExtensionApi, evidence: Record<string, unknow
   assert.notEqual(recoveredRow.schema, 'legacy-v1', 'after recovery the row presents as a normal v2 session');
   assert.equal(recoveredRow.archived, false, 'the local legacy archive marker no longer applies');
   const afterRecovery = await api.refresh() as { sessions: CatalogRow[] };
-  assert.equal(describeCatalogCounts(afterRecovery.sessions), `${afterRecovery.sessions.length - 1} 条会话 · 1 条旧版记录`);
+  assert.equal(describeCatalogCounts(afterRecovery.sessions), `${afterRecovery.sessions.length - 1} sessions · 1 legacy record`);
   // The ORIGINAL v1 row is still in the shared (isolated) database, untouched.
   const dbCheck = new DatabaseSync(dbPath, { readOnly: true });
   try {

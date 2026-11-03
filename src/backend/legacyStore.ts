@@ -120,23 +120,23 @@ export class LegacyLocalState {
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT") return new LegacyLocalState(filePath, { archived: {}, tombstones: {} });
-      throw new Error(`旧版本地状态文件无法读取（${filePath}）：${error instanceof Error ? error.message : String(error)}。为避免丢失本地归档/墓碑记录，已停止处理；请检查该文件的访问权限。`);
+      throw new Error(`The legacy local state file cannot be read (${filePath}): ${error instanceof Error ? error.message : String(error)}. To avoid losing local archive/tombstone records, processing is stopped; check the file's access permissions.`);
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch (error) {
-      throw new Error(`旧版本地状态文件已损坏（${filePath}）：${error instanceof Error ? error.message : String(error)}。为避免覆盖损坏状态、丢失本地归档/墓碑记录，已停止处理；请人工检查该文件。`);
+      throw new Error(`The legacy local state file is damaged (${filePath}): ${error instanceof Error ? error.message : String(error)}. To avoid overwriting the damaged state and losing local archive/tombstone records, processing is stopped; inspect the file manually.`);
     }
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error(`旧版本地状态文件格式无效（${filePath}）：顶层不是 JSON 对象。为避免覆盖坏状态，已停止处理。`);
+      throw new Error(`The legacy local state file has an invalid format (${filePath}): the top level is not a JSON object. To avoid overwriting the bad state, processing is stopped.`);
     }
     const record = parsed as Record<string, unknown>;
     const sub = (key: keyof LocalState): Record<string, number> => {
       const value = record[key];
       if (value === undefined) return {}; // absent key = legitimate older format
       if (value === null || typeof value !== "object" || Array.isArray(value)) {
-        throw new Error(`旧版本地状态文件格式无效（${filePath}）：${key} 不是对象。为避免覆盖坏状态，已停止处理。`);
+        throw new Error(`The legacy local state file has an invalid format (${filePath}): ${key} is not an object. To avoid overwriting the bad state, processing is stopped.`);
       }
       return value as Record<string, number>;
     };
@@ -193,16 +193,16 @@ function asRow(value: unknown): Record<string, unknown> | null {
  */
 function parseV1Json(text: unknown): V1Part {
   if (typeof text !== "string") {
-    return { data: {}, error: "存储值不是 JSON 文本", raw: text === undefined || text === null ? "" : String(text) };
+    return { data: {}, error: "The stored value is not JSON text", raw: text === undefined || text === null ? "" : String(text) };
   }
   try {
     const value = JSON.parse(text) as unknown;
     if (value !== null && typeof value === "object" && !Array.isArray(value)) {
       return { data: value as Record<string, unknown>, error: null, raw: null };
     }
-    return { data: {}, error: "存储 JSON 不是对象", raw: text };
+    return { data: {}, error: "The stored JSON is not an object", raw: text };
   } catch (error) {
-    return { data: {}, error: `JSON 解析失败：${error instanceof Error ? error.message : String(error)}`, raw: text };
+    return { data: {}, error: `JSON parse failed: ${error instanceof Error ? error.message : String(error)}`, raw: text };
   }
 }
 
@@ -215,13 +215,13 @@ export function readLegacyCandidates(env: NodeJS.ProcessEnv, tombstones: Readonl
   const warnings: string[] = [];
   const sqlite = loadSqlite();
   if (sqlite === null) {
-    return { candidates: [], v1Ids: new Set(), warnings: ["当前扩展宿主无 node:sqlite 能力，旧版（V1）记录清单不可用；这不影响新版会话的读取。"] };
+    return { candidates: [], v1Ids: new Set(), warnings: ["The current extension host has no node:sqlite capability, so the legacy (V1) record inventory is unavailable; this does not affect reading new-version sessions."] };
   }
   let db: SqliteDatabase;
   try {
     db = new sqlite.DatabaseSync(databaseFile(env), { readOnly: true });
   } catch (error) {
-    return { candidates: [], v1Ids: new Set(), warnings: [`无法只读打开共享数据库以发现旧版记录：${error instanceof Error ? error.message : String(error)}`] };
+    return { candidates: [], v1Ids: new Set(), warnings: [`Cannot open the shared database read-only to discover legacy records: ${error instanceof Error ? error.message : String(error)}`] };
   }
   try {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
@@ -283,13 +283,13 @@ export function readLegacyCandidates(env: NodeJS.ProcessEnv, tombstones: Readonl
       row.legacy = {
         writer_version: raw.version,
         recovery_supported: analysis.supported,
-        ...(analysis.warnings.length > 0 ? { warning: analysis.warnings.join("；") } : {}),
+        ...(analysis.warnings.length > 0 ? { warning: analysis.warnings.join("; ") } : {}),
       };
       candidates.push({ row, writerVersion: raw.version, recoverySupported: analysis.supported, warnings: analysis.warnings, raw });
     }
     return { candidates, v1Ids, warnings };
   } catch (error) {
-    return { candidates: [], v1Ids: new Set(), warnings: [`读取旧版（V1）记录失败：${error instanceof Error ? error.message : String(error)}`] };
+    return { candidates: [], v1Ids: new Set(), warnings: [`Reading legacy (V1) records failed: ${error instanceof Error ? error.message : String(error)}`] };
   } finally {
     try {
       db.close();
@@ -302,7 +302,7 @@ export function readLegacyCandidates(env: NodeJS.ProcessEnv, tombstones: Readonl
 /** Full message payload of one v1 session (readonly), parts attached in order. */
 export function readLegacyMessages(env: NodeJS.ProcessEnv, sessionId: string): { messages: V1Message[]; error: string | null } {
   const sqlite = loadSqlite();
-  if (sqlite === null) return { messages: [], error: "当前扩展宿主无 node:sqlite 能力，无法读取旧版记录正文。" };
+  if (sqlite === null) return { messages: [], error: "The current extension host has no node:sqlite capability, so legacy record bodies cannot be read." };
   try {
     const db = new sqlite.DatabaseSync(databaseFile(env), { readOnly: true });
     try {
@@ -313,7 +313,7 @@ export function readLegacyMessages(env: NodeJS.ProcessEnv, sessionId: string): {
       db.close();
     }
   } catch (error) {
-    return { messages: [], error: `读取旧版记录正文失败：${error instanceof Error ? error.message : String(error)}` };
+    return { messages: [], error: `Reading the legacy record body failed: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
 
@@ -353,25 +353,25 @@ export function analyzeForRecovery(messages: readonly V1Message[]): { supported:
   const warnings: string[] = [];
   for (const message of messages) {
     if (message.dataError !== null) {
-      warnings.push(`消息 ${message.id} 的存储 JSON 已损坏（${message.dataError}），无法验证转换`);
+      warnings.push(`The stored JSON of message ${message.id} is damaged (${message.dataError}); the conversion cannot be verified`);
       continue;
     }
     const partError = message.parts.find(part => part.error !== null);
     if (partError !== undefined) {
-      warnings.push(`消息 ${message.id} 含无法解析的部件（${partError.error}），无法验证转换`);
+      warnings.push(`Message ${message.id} contains an unparseable part (${partError.error}); the conversion cannot be verified`);
       continue;
     }
     const role = message.data.role;
     if (role === "user") {
       const bad = message.parts.find(part => part.data.type !== "text" || typeof part.data.text !== "string");
-      if (bad !== undefined) warnings.push(`消息 ${message.id}（user）含未验证的部件类型 ${String(bad.data.type)}`);
-      if (message.parts.length === 0) warnings.push(`消息 ${message.id}（user）没有文本部件`);
+      if (bad !== undefined) warnings.push(`Message ${message.id} (user) contains an unverified part type ${String(bad.data.type)}`);
+      if (message.parts.length === 0) warnings.push(`Message ${message.id} (user) has no text part`);
     } else if (role === "assistant") {
       const time = asRow(message.data.time);
-      if (message.parts.length > 0) warnings.push(`消息 ${message.id}（assistant）带 ${message.parts.length} 个部件，超出已验证的转换形状（完成的空回复）`);
-      if (time === null || time.completed === undefined) warnings.push(`消息 ${message.id}（assistant）未完成，转换可能丢失未定内容`);
+      if (message.parts.length > 0) warnings.push(`Message ${message.id} (assistant) carries ${message.parts.length} parts, outside the verified conversion shape (a completed empty reply)`);
+      if (time === null || time.completed === undefined) warnings.push(`Message ${message.id} (assistant) is unfinished; the conversion could lose unsettled content`);
     } else {
-      warnings.push(`消息 ${message.id} 角色为 ${String(role)}，不在已验证的转换形状内`);
+      warnings.push(`Message ${message.id} has role ${String(role)}, outside the verified conversion shapes`);
     }
   }
   return { supported: warnings.length === 0, warnings };

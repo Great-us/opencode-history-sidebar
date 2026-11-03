@@ -74,7 +74,8 @@ export function isLegacyRow(row: CatalogRow): boolean {
 export function describeCatalogCounts(rows: readonly CatalogRow[]): string {
   const legacy = rows.filter(isLegacyRow).length;
   const v2 = rows.length - legacy;
-  return legacy > 0 ? `${v2} 条会话 · ${legacy} 条旧版记录` : `${v2} 条会话`;
+  const sessions = `${v2} session${v2 === 1 ? "" : "s"}`;
+  return legacy > 0 ? `${sessions} · ${legacy} legacy record${legacy === 1 ? "" : "s"}` : sessions;
 }
 
 /** One inventory scan result (backend contract). */
@@ -204,8 +205,8 @@ export function isOpenCodeSessionId(id: string): boolean {
  * assumption.
  */
 export function sessionArgv(sessionId: string, directory: string, extraArgs: readonly string[] = []): string[] {
-  if (!isOpenCodeSessionId(sessionId)) throw new Error(`不是有效的 OpenCode 会话 ID：${sessionId}`);
-  if (!directory || directory.trim() === "") throw new Error("恢复会话需要原工作目录。");
+  if (!isOpenCodeSessionId(sessionId)) throw new Error(`Not a valid OpenCode session ID: ${sessionId}`);
+  if (!directory || directory.trim() === "") throw new Error("Resuming a session requires the original working directory.");
   return [...extraArgs, directory, "--session", sessionId];
 }
 
@@ -388,7 +389,7 @@ export function buildCatalogGroups(
       const path = workspace === "" ? null : displayPath(workspace);
       group = {
         key,
-        label: path === null ? "未分类" : directoryName(path),
+        label: path === null ? "Uncategorized" : directoryName(path),
         path,
         trees: [],
         latestAt: 0,

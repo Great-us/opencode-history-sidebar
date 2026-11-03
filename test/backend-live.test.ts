@@ -138,7 +138,7 @@ describe("live channel", () => {
     // Resume-card handoff item: the recovered stream must not keep the stale
     // disconnect warning behind — a live channel clears what got recovered.
     assert.ok(
-      !service.liveStatus().warnings.some(warning => warning.includes("事件流中断")),
+      !service.liveStatus().warnings.some(warning => warning.includes("Event stream interrupted")),
       "重连恢复 live 后，对应的断线警告必须被清除",
     );
     const inventory = await service.refresh();
@@ -186,7 +186,7 @@ describe("activity semantics (positive evidence only)", () => {
       // A positively-active session must also REFUSE deletion (revision item
       // B), before any backup is taken.
       await assert.rejects(() => service.deleteSession(target.session_id), (error: unknown) => {
-        assert.ok(String((error as Error).message).includes("正在运行"), `unexpected refusal message: ${(error as Error).message}`);
+        assert.ok(String((error as Error).message).includes("are running"), `unexpected refusal message: ${(error as Error).message}`);
         return true;
       });
       const after = await service.refresh();

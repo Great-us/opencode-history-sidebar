@@ -47,7 +47,7 @@ export class BackupStore {
   }
 
   private dir(backupId: string): string {
-    if (!/^[A-Za-z0-9._-]+$/.test(backupId)) throw new Error(`非法的备份标识：${backupId}`);
+    if (!/^[A-Za-z0-9._-]+$/.test(backupId)) throw new Error(`Invalid backup identifier: ${backupId}`);
     return join(this.root(), backupId);
   }
 
@@ -99,7 +99,7 @@ export class BackupStore {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT") return [];
       // Permission/I/O failures must not silently hide existing backups.
-      throw new Error(`无法读取恢复备份目录 ${this.root()}：${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Cannot read the recovery backup directory ${this.root()}: ${error instanceof Error ? error.message : String(error)}`);
     }
     const manifests: BackupManifest[] = [];
     for (const entry of entries) {
@@ -112,9 +112,9 @@ export class BackupStore {
           backup_id: entry.name,
           created_at: "",
           session_ids: [],
-          title: "（无法读取的备份）",
+          title: "(unreadable backup)",
           status: "partial",
-          message: "备份清单无法读取。原始文件仍在扩展私有存储中。",
+          message: "The backup manifest cannot be read. The original files are still in the extension's private storage.",
           members: [],
         });
       }
@@ -125,7 +125,7 @@ export class BackupStore {
   async read(backupId: string): Promise<BackupManifest> {
     const value: unknown = JSON.parse(await readFile(join(this.dir(backupId), "manifest.json"), "utf8"));
     if (value === null || typeof value !== "object" || !Array.isArray((value as BackupManifest).members)) {
-      throw new Error(`备份 ${backupId} 的清单格式无效。`);
+      throw new Error(`The manifest of backup ${backupId} has an invalid format.`);
     }
     return value as BackupManifest;
   }
@@ -135,7 +135,7 @@ export class BackupStore {
     const value: unknown = JSON.parse(await readFile(join(this.dir(backupId), member.file), "utf8"));
     const envelope = value as SessionExport;
     if (envelope === null || typeof envelope !== "object" || !envelope.info || !Array.isArray(envelope.messages)) {
-      throw new Error(`备份 ${backupId} 中会话 ${member.session_id} 的导出文件无效。`);
+      throw new Error(`The export file for session ${member.session_id} in backup ${backupId} is invalid.`);
     }
     return envelope;
   }

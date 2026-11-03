@@ -220,12 +220,13 @@ export class LiveChannel {
     // A (re)established stream proves nothing about the gap that just closed:
     // demand a full reconcile before anything is called fresh again. The
     // disconnect warning set by onStreamDown is now RECOVERED — leaving it
-    // behind would show a stale "中断" warning on a live channel (resume-card
-    // handoff item). Unrelated warnings (e.g. watcher errors) stay.
+    // behind would show a stale "interrupted" warning on a live channel
+    // (resume-card handoff item). Unrelated warnings (e.g. watcher errors)
+    // stay.
     this.setStatus({
       state: "live",
       source: "service-sse",
-      warnings: this.status.warnings.filter(warning => !warning.startsWith("事件流中断")),
+      warnings: this.status.warnings.filter(warning => !warning.startsWith("Event stream interrupted")),
     });
     this.buffer({ kind: "session.metadata", eventTypes: ["reconcile.after.reconnect"] }, "reconcile");
   }
@@ -235,7 +236,7 @@ export class LiveChannel {
     this.abort = null;
     // Nothing observed before the gap may survive as trusted Running state.
     this.options.execution.clear();
-    this.setStatus({ state: "degraded", warnings: [`事件流中断：${error}`] });
+    this.setStatus({ state: "degraded", warnings: [`Event stream interrupted: ${error}`] });
     const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** Math.min(this.reconnectAttempts, 5));
     this.reconnectAttempts += 1;
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
@@ -297,10 +298,10 @@ export class LiveChannel {
           }
           this.buffer({ kind: "session.metadata", eventTypes: ["reconcile.db.structure"] }, "reconcile");
         });
-        watcher.on("error", () => this.setStatus({ warnings: [...this.status.warnings, "数据库目录监视中断，实时兜底信号不可用。"] }));
+        watcher.on("error", () => this.setStatus({ warnings: [...this.status.warnings, "Database directory watching was interrupted; the realtime fallback signal is unavailable."] }));
         this.watchers.push(watcher);
       } catch {
-        this.setStatus({ warnings: [...this.status.warnings, `无法监视目录 ${root.directory}（实时兜底信号不可用）。`] });
+        this.setStatus({ warnings: [...this.status.warnings, `Cannot watch the directory ${root.directory} (the realtime fallback signal is unavailable).`] });
       }
     }
   }

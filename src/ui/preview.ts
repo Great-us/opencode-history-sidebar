@@ -50,7 +50,7 @@ export class HistoryPreview {
   private disposed = false;
   private readonly nonce = randomBytes(18).toString('base64');
   constructor(private row: CatalogRow, private readonly extensionUri: vscode.Uri, private readonly read: (id: string, cursor?: string) => Promise<CatalogHistoryPage>) {
-    this.panel = vscode.window.createWebviewPanel('opencodeHistory.preview', `预览 · ${row.title || row.session_id}`, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')], retainContextWhenHidden: true });
+    this.panel = vscode.window.createWebviewPanel('opencodeHistory.preview', `Preview · ${row.title || row.session_id}`, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')], retainContextWhenHidden: true });
     this.panel.webview.onDidReceiveMessage(message => {
       if (message?.type === 'more' && (this.cursor || this.error) && !this.loading) void this.load(this.cursor ?? undefined);
       if (message?.type === 'latest' && !this.loading) void this.loadLatest();
@@ -155,7 +155,7 @@ export class HistoryPreview {
         if (this.cursor === null || page.entries.length === 0) break;
       }
       if (guard >= 2000) {
-        this.warning = '已连续加载大量分页仍未到末尾；可再次点击“加载到最新”从当前位置继续。';
+        this.warning = 'A very large number of pages has been loaded without reaching the end; click "Load to Latest" again to continue from the current position.';
         this.tailOffered = true; // keep the continuation: cursor is intact, the button stays.
         this.tailReason = 'maybe';
       } else this.tailOffered = false;
@@ -192,17 +192,17 @@ export class HistoryPreview {
     const css = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'preview.css'));
     const script = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'preview.js'));
     const freshness = this.stale
-      ? '内容可能过期，切换到本页后自动刷新'
-      : this.lastUpdateAt === null ? '' : `更新于 ${new Date(this.lastUpdateAt).toLocaleTimeString()}`;
+      ? 'Content may be outdated; it refreshes automatically when you switch to this page'
+      : this.lastUpdateAt === null ? '' : `Updated at ${new Date(this.lastUpdateAt).toLocaleTimeString()}`;
     const tailNotice = this.tailOffered
       ? this.tailReason === 'new'
-        ? `<p class="notice" role="status">本会话有新内容位于已加载范围之外。<button id="latest">加载到最新</button></p>`
-        : `<p class="notice" role="status">本机会话数据有变化；本会话可能还有未加载的新内容。<button id="latest">加载到最新</button></p>`
+        ? `<p class="notice" role="status">This session has new content beyond the loaded range. <button id="latest">Load to Latest</button></p>`
+        : `<p class="notice" role="status">Local session data changed; this session may have unloaded new content. <button id="latest">Load to Latest</button></p>`
       : '';
     const legacyNotice = this.legacy
-      ? `<p class="notice">旧版记录（只读预览）。打开终端或删除前需先执行“将旧版记录导入新版”。</p>`
+      ? `<p class="notice">Legacy record (read-only preview). Run "Import Legacy Record into New Version" before opening a terminal or deleting.</p>`
       : '';
-    return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${this.nonce}'; img-src 'none'; font-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${css}"></head><body><h1>${escapeHtml(this.row.title || this.row.session_id)}</h1><p class="muted">只读预览 · ${escapeHtml(this.row.workspace)}<br>${escapeHtml(this.row.session_id)}</p>${legacyNotice}${this.warning ? `<p class="notice">${escapeHtml(this.warning)}</p>` : ''}${tailNotice}${freshness ? `<p class="muted">${escapeHtml(freshness)}</p>` : ''}${renderEntries(this.entries)}${this.error ? `<p role="alert">${escapeHtml(this.error)}</p>` : ''}<footer><p>已加载 ${this.entries.length} 条记录${this.cursor ? '，还有更多' : this.loading ? '' : ' · 已到末尾'}</p>${this.loading ? '<p>正在读取…</p>' : ''}${!this.loading && (this.cursor || this.error) ? '<button id="more">加载更多 / 重试</button>' : ''}</footer><script nonce="${this.nonce}" src="${script}"></script></body></html>`;
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${this.nonce}'; img-src 'none'; font-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${css}"></head><body><h1>${escapeHtml(this.row.title || this.row.session_id)}</h1><p class="muted">Read-only preview · ${escapeHtml(this.row.workspace)}<br>${escapeHtml(this.row.session_id)}</p>${legacyNotice}${this.warning ? `<p class="notice">${escapeHtml(this.warning)}</p>` : ''}${tailNotice}${freshness ? `<p class="muted">${escapeHtml(freshness)}</p>` : ''}${renderEntries(this.entries)}${this.error ? `<p role="alert">${escapeHtml(this.error)}</p>` : ''}<footer><p>${this.entries.length} entries loaded${this.cursor ? ', more available' : this.loading ? '' : ' · end reached'}</p>${this.loading ? '<p>Reading…</p>' : ''}${!this.loading && (this.cursor || this.error) ? '<button id="more">Load More / Retry</button>' : ''}</footer><script nonce="${this.nonce}" src="${script}"></script></body></html>`;
   }
   private render(): void { if (!this.disposed) this.panel.webview.html = this.html(); }
 }

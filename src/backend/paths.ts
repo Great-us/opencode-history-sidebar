@@ -20,7 +20,7 @@ export function effectiveEnv(env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 function homeDirectory(env: NodeJS.ProcessEnv): string {
   const home = env.USERPROFILE || env.HOME || "";
   if (home && isAbsolute(home)) return home;
-  throw new Error("无法确定用户主目录（USERPROFILE/HOME 均缺失或非绝对路径）。");
+  throw new Error("Cannot determine the user home directory (USERPROFILE/HOME missing or not absolute).");
 }
 
 function xdg(env: NodeJS.ProcessEnv, variable: "XDG_DATA_HOME" | "XDG_STATE_HOME", fallback: string): string {

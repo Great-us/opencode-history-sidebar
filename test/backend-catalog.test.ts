@@ -261,7 +261,7 @@ describe("recoverable delete and restore", () => {
     const result = await service.restoreBackup(backup.backup_id);
     assert.equal(result.status, "partial");
     assert.deepEqual(result.restored_session_ids, []);
-    assert.match(result.message, /已存在/);
+    assert.match(result.message, /already exists/);
     const inventory = await service.refresh();
     assert.ok(inventory.sessions.some(row => row.session_id === seeded.P), "existing session untouched");
     assert.deepEqual((await service.readHistory(seeded.P)).entries.map(entry => entry.text), ["P turn 1", "P turn 2"]);
@@ -285,7 +285,7 @@ describe("refusals and partial outcomes", () => {
       }) as typeof fetch;
       await assert.rejects(() => service.deleteSession(seeded.R), (error: unknown) => {
         assert.ok(error instanceof DeleteRefusedError, `expected DeleteRefusedError, got ${String(error)}`);
-        assert.match((error as DeleteRefusedError).message, /拒绝删除/);
+        assert.match((error as DeleteRefusedError).message, /deletion refused/);
         return true;
       });
     } finally {
@@ -330,7 +330,7 @@ describe("refusals and partial outcomes", () => {
       }) as typeof fetch;
       const result = await service.deleteSession(seeded.X);
       assert.equal(result.status, "partial");
-      assert.match(result.message, /未完全生效|无法核验/);
+      assert.match(result.message, /did not fully take effect|cannot be verified/);
       assert.deepEqual(result.deleted_session_ids, [seeded.X]);
       assert.ok(result.backup_id, "partial outcome carries a backup id");
       // Revision item G: exactly one root DELETE; no fallback descendant
@@ -347,7 +347,7 @@ describe("refusals and partial outcomes", () => {
   test("in-use sessions are refused before any deletion", async () => {
     await assert.rejects(() => service.deleteSession(seeded.P, new Set([seeded.P])), (error: unknown) => {
       assert.ok(error instanceof DeleteRefusedError);
-      assert.match((error as DeleteRefusedError).message, /终端仍在本扩展中打开/);
+      assert.match((error as DeleteRefusedError).message, /still open in this extension/);
       return true;
     });
     const inventory = await service.refresh();
@@ -409,7 +409,7 @@ describe("delete preflight boundary regressions", () => {
     try {
       await assert.rejects(() => service.deleteSession(parent), (error: unknown) => {
         assert.ok(error instanceof DeleteRefusedError, `expected DeleteRefusedError, got ${String(error)}`);
-        assert.match((error as DeleteRefusedError).message, /范围已变化/);
+        assert.match((error as DeleteRefusedError).message, /delete scope changed/);
         return true;
       });
     } finally {
@@ -439,7 +439,7 @@ describe("delete preflight boundary regressions", () => {
     try {
       await assert.rejects(() => service.deleteSession(parent), (error: unknown) => {
         assert.ok(error instanceof DeleteRefusedError, `expected DeleteRefusedError, got ${String(error)}`);
-        assert.match((error as DeleteRefusedError).message, /归档或其他保留元数据发生变化/);
+        assert.match((error as DeleteRefusedError).message, /retained metadata of session .* changed/);
         return true;
       });
     } finally {
@@ -477,7 +477,7 @@ describe("delete preflight boundary regressions", () => {
       }) as typeof fetch;
       await assert.rejects(() => service.deleteSession(parent), (error: unknown) => {
         assert.ok(error instanceof DeleteRefusedError, `expected DeleteRefusedError, got ${String(error)}`);
-        assert.match((error as DeleteRefusedError).message, /已消失会话 ses_be_RP_child/);
+        assert.match((error as DeleteRefusedError).message, /sessions ses_be_RP_child disappeared/);
         return true;
       });
     } finally {
@@ -509,7 +509,7 @@ describe("delete preflight boundary regressions", () => {
       }) as typeof fetch;
       await assert.rejects(() => service.deleteSession(target), (error: unknown) => {
         assert.ok(error instanceof DeleteRefusedError, `expected DeleteRefusedError, got ${String(error)}`);
-        assert.match((error as DeleteRefusedError).message, /正文不一致/);
+        assert.match((error as DeleteRefusedError).message, /body text mismatch/);
         return true;
       });
     } finally {
@@ -542,7 +542,7 @@ describe("delete preflight boundary regressions", () => {
       assert.ok(Array.isArray(rows) && rows.length > 0, "native GET confirms the pending inbox is non-empty");
       await assert.rejects(() => service.deleteSession(target), (error: unknown) => {
         assert.ok(error instanceof DeleteRefusedError, `expected DeleteRefusedError, got ${String(error)}`);
-        assert.match((error as DeleteRefusedError).message, /待处理输入/);
+        assert.match((error as DeleteRefusedError).message, /pending input/);
         return true;
       });
       const inventory = await service.refresh();
@@ -576,7 +576,7 @@ describe("delete preflight boundary regressions", () => {
       }) as typeof fetch;
       const result = await service.deleteSession(target);
       assert.equal(result.status, "partial");
-      assert.match(result.message, /无法确认/);
+      assert.match(result.message, /cannot be confirmed/);
       assert.deepEqual(result.deleted_session_ids, []);
       assert.equal(deletes, 1, "exactly one official DELETE attempt; no fallback re-delete");
       assert.ok(result.backup_id, "partial outcome carries the backup id");
@@ -648,7 +648,7 @@ describe("complete backup/restore fidelity", () => {
     writeFileSync(memberPath, JSON.stringify(envelope, null, 2), "utf8");
     const result = await service.restoreBackup(deleted.backup_id);
     assert.equal(result.status, "partial");
-    assert.match(result.message, /恢复失败/);
+    assert.match(result.message, /failed to restore/);
     assert.deepEqual(result.restored_session_ids, []);
   });
 });
