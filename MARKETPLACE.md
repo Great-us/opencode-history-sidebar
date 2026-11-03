@@ -1,5 +1,7 @@
 # OpenCode History
 
+<img src="media/icon.png" width="96" height="96" alt="OpenCode History logo">
+
 Browse and manage your local OpenCode conversation history directly in VS Code, grouped by workspace folder, and reopen any session terminal in its original working directory.
 
 This is an unofficial community extension, independently maintained; it is not an official extension from the engine vendor.

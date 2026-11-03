@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Added an original folder-and-history app icon, a theme-aware activity bar icon, and a matching documentation logo.
+
 ## 0.1.1
 
 - English release: extension display name, commands, menus, settings, tree badges and tooltips, preview pages, status labels, and backend errors/warnings are now English (webview HTML uses `lang="en"`); conversation contents, session titles, and file paths are never translated.

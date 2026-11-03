@@ -3,7 +3,7 @@
   "displayName": "OpenCode History",
   "description": "Browse local OpenCode history by workspace folder and reopen session terminals in their original working directory.",
   "publisher": "AlexWonton",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "MIT",
   "engines": {
     "vscode": "^1.144.0"
@@ -213,5 +213,6 @@
     "sessions",
     "workspace",
     "opencode"
-  ]
+  ],
+  "icon": "media/icon.png"
 }

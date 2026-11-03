@@ -1,5 +1,7 @@
 # OpenCode History Sidebar
 
+<img src="media/icon.png" width="96" height="96" alt="OpenCode History logo">
+
 Unofficial community VS Code extension for browsing and managing local OpenCode conversation history by workspace folder. This project is independently maintained and is not an official extension from the engine vendor. Starting with version 0.1.1, the extension UI, Marketplace listing, and packaging are English; this repository guide is bilingual (English below, 中文指南在下半部分).
 
 ## Usage
