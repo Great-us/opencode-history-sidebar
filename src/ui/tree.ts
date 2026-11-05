@@ -40,6 +40,16 @@ export class HistoryTree implements vscode.TreeDataProvider<HistoryNode>, vscode
       return item;
     }
     const { row, children, archived, contextOnly } = node.tree;
+    if (row.archive_id) {
+      // Moved out of OpenCode into the archive folder: it cannot be opened or previewed until unarchived.
+      const archivedItem = new vscode.TreeItem(row.title || row.session_id, vscode.TreeItemCollapsibleState.None);
+      archivedItem.id = `archive:${row.archive_id}`;
+      archivedItem.description = [row.session_id.slice(-12), row.archived_at ? `Archived ${new Date(row.archived_at).toLocaleDateString()}` : 'Archived', row.archived_sub_records ? `${row.archived_sub_records} child session(s)` : ''].filter(Boolean).join(' · ');
+      archivedItem.tooltip = `${row.title}\n${row.workspace || 'Unknown directory'}\n${row.session_id}\nIn the archive folder (removed from OpenCode).\nRight-click to Unarchive (import back into OpenCode) or Delete (move to the Windows Recycle Bin).`;
+      archivedItem.contextValue = 'archivedEntry';
+      archivedItem.iconPath = new vscode.ThemeIcon('archive');
+      return archivedItem;
+    }
     const legacy = isLegacyRow(row);
     const child = row.kind !== 'root' || Boolean(row.parent_session_id);
     // Activity is badged only from verified live sources while the link is

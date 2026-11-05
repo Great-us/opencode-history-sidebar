@@ -12,9 +12,9 @@ This is an unofficial community extension, independently maintained; it is not a
 - **Search and archive filter** — search session titles or folder paths, and switch between Unarchived, Archived, and All views.
 - **Read-only preview** — page through a full transcript without any cap or truncation; links and images stay inert, so reading history never fetches a remote URL.
 - **Resume in place** — right-click a main session to open an OpenCode terminal in its original working directory with the exact session id; reopening focuses the existing terminal instead of duplicating it.
-- **Archive management** — archive or unarchive sessions through the engine's official API; archiving keeps the conversation body.
-- **Recoverable delete** — before anything is removed, the affected sessions are listed, a private local backup is created, and the backup is proven restorable in an isolated verification host. Deletes with unfinished messages, queued input, or detected running tasks are refused.
-- **Restore Backup** — bring deleted sessions back with their verified conversation bodies, parent/child relations, original directories, and archive state.
+- **Archive folder** — Archive moves a conversation (with its child sessions) out of OpenCode into `~/.local/share/opencode-history-archive/`; the **Archived** view lists it, with **Unarchive** (import back), **Delete**, **Open Archive Folder** and **Empty Archive**.
+- **Delete to the Recycle Bin** — the affected sessions are listed, exported and verified, removed from OpenCode, and the export goes to the Windows Recycle Bin. No other copy is kept. Deletes with unfinished messages, queued input, or detected running tasks are refused.
+- **Restore Deleted Session** — after restoring a deleted conversation's folder from the Windows Recycle Bin, import it back with its verified bodies, parent/child relations, original directories, and archive state.
 - **Static and lightweight** — history is read only when you press **Refresh**; nothing runs in the background. A running OpenCode background service is reused; otherwise each read uses a temporary private server that is stopped right afterwards. A new window shows the last refresh from a small saved snapshot without starting anything.
 - **Legacy record support** — leftover V1 records are marked separately, support read-only preview and local archiving, and can be imported into the new version through an explicit, confirmed step.
 
@@ -29,7 +29,7 @@ This is an unofficial community extension, independently maintained; it is not a
 1. Install the extension and open the **OpenCode History** view in the Activity Bar.
 2. The first read enumerates every session on the machine. If reading fails, click **Refresh**, then use the gear icon to select your local `opencode.exe`; the view keeps the last successful content and shows the error.
 3. Expand a folder, right-click a session to preview it, archive it, or open its terminal in the original directory.
-4. Use **Delete (Recoverable)** when you want a removable record: the extension shows the exact scope first, creates and verifies a private backup, and only then deletes. **Restore Backup** brings sessions back if you change your mind.
+4. **Delete** moves a conversation to the Windows Recycle Bin after showing the exact scope; **Archive** moves it to the archive folder instead.
 
 ## How refreshing works
 
@@ -38,14 +38,14 @@ This is an unofficial community extension, independently maintained; it is not a
 - A new VS Code window shows the last refresh from a small snapshot in the extension's storage, without starting any process.
 - A "Running" badge reflects the moment of the last refresh. When another process's running state cannot be confirmed, it stays unknown rather than being guessed.
 
-## Deletion, backup, and recovery
+## Archive, delete, and recovery
 
-- Deleting is scoped by parent/child relations (never by directory containment) and always preceded by a private local backup that covers the verified conversation bodies and key metadata.
-- The stored backup must survive an official import and readback inside an isolated verification host before anything is deleted.
+- Deleting and archiving are scoped by parent/child relations (never by directory containment) and always preceded by a preview of the affected sessions.
+- The export must survive an official import and readback inside an isolated verification host before anything is removed; otherwise nothing is removed and the export is discarded.
 - OpenCode 2.2.5 provides no cross-process atomic delete: stop tasks that still use the affected sessions in other windows, and do not keep writing while the deletion runs. When in doubt, archive instead of deleting.
 - The extension reports partial successes and unconfirmed outcomes explicitly; it never silently retries a delete against an unverified, changing tree.
 - Restoring never overwrites existing sessions; conflicts are reported.
-- Recovery backups live in the extension's private local storage and are not purged automatically. The extension never uploads conversations, and the packages contain no history data.
+- Archived conversations live in `~/.local/share/opencode-history-archive`; deleted ones only in the Windows Recycle Bin. The extension keeps no hidden backups, never uploads conversations, and the packages contain no history data.
 
 ## Legacy (V1) records
 

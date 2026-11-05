@@ -319,7 +319,10 @@ interface ExtensionApi {
     readHistory(id: string, cursor?: string): Promise<{ entries: Array<{ id: string; text: string }>; next_cursor: string | null }>;
     recoverLegacySession(sessionId: string): Promise<RestoreResult>;
     restoreBackup(backupId: string): Promise<RestoreResult>;
+    listBackups(): Promise<Array<{ backup_id: string }>>;
   };
+  archivedRows(): CatalogRow[];
+  storagePath: string;
   refresh(reason?: string): Promise<unknown>;
   setArchived(value: unknown, archived: boolean): Promise<void>;
   recoverLegacy(value: unknown, confirmed?: boolean): Promise<RestoreResult>;
@@ -535,10 +538,10 @@ async function runPrimary(api: ExtensionApi, evidence: Record<string, unknown>, 
   // persistence/reload hosts through the shared persistent-session state.
   tc.dispose();
 
-  // --- 5. archive persistence (native PATCH via the backend) ---
+  // --- 5. archive: C moves out of OpenCode into the archive folder ---
   await api.setArchived(ids.C, true);
-  await pollUntil('archived state visible in the DTO-driven tree', 20000,
-    () => api.tree.forest.treeById.get(ids.C)?.row.archived === true);
+  assert.equal(api.tree.forest.treeById.has(ids.C), false, 'archived C left History (removed from OpenCode)');
+  assert.ok(api.archivedRows().some(row => row.session_id === ids.C && row.archive_id), 'Archived view lists C from the archive folder');
   evidence.archiveSetInPrimary = true;
 
   // --- 6. no background service: Refresh uses a temporary private server and stops it ---
@@ -569,7 +572,7 @@ async function runPersistencePhase(api: ExtensionApi, evidence: Record<string, u
   // persisted through the service DTO (no UI-side archive store exists).
   await pollUntil('activation snapshot of the restarted host', 30000,
     () => api.tree.forest.treeById.size > 0);
-  assert.equal(api.tree.forest.treeById.get(ids.C)?.row.archived, true, 'archive persisted across the host restart (native, DTO-driven)');
+  assert.ok(!api.tree.forest.treeById.has(ids.C) && api.archivedRows().some(row => row.session_id === ids.C), 'archive folder entry persisted across the host restart');
   evidence.archivedPersistedAcrossHosts = true;
   // Receipts live on real disk globalState: a terminal opened in this phase
   // is backed by a persisted receipt the next host verifies (reload phase).
@@ -710,7 +713,7 @@ async function runReloadPhase(api: ExtensionApi, evidence: Record<string, unknow
   // The tree of this reloaded host still holds every synthetic session and
   // the archive persisted from the primary host.
   assert.ok(api.tree.forest.treeById.has(checkpoint.aSessionId));
-  assert.equal(api.tree.forest.treeById.get(ids.C)?.row.archived, true, 'archive persisted across the real reload');
+  assert.ok(!api.tree.forest.treeById.has(ids.C) && api.archivedRows().some(row => row.session_id === ids.C), 'archive folder entry persisted across the real reload');
   evidence.actualWindowReload = {
     nativePidBefore: checkpoint.aPid,
     nativePidAfter: await selected.processId,
@@ -884,16 +887,25 @@ async function runLegacyPhase(api: ExtensionApi, evidence: Record<string, unknow
   } finally { dbCheck.close(); }
   evidence.legacyRecovered = { status: result.status, v2Row: true, originalV1Preserved: true };
 
-  // --- native archive on the recovered v2 row (official PATCH) ---
-  await api.setArchived(LEGACY_OK, true);
-  await pollUntil('native archive visible on the recovered row', 20000, () => api.tree.forest.treeById.get(LEGACY_OK)?.row.archived === true);
+  // --- archive folder round trip on the recovered v2 row ---
   assert.equal(api.tree.forest.treeById.get(LEGACY_OK)?.row.schema, undefined);
-  evidence.legacyRecoveredNativeArchive = true;
+  await api.setArchived(LEGACY_OK, true);
+  const archivedEntry = api.archivedRows().find(row => row.session_id === LEGACY_OK);
+  assert.ok(archivedEntry?.archive_id && !api.tree.forest.treeById.has(LEGACY_OK), 'recovered row moved to the archive folder');
+  await api.setArchived(LEGACY_OK, false);
+  assert.ok(api.tree.forest.treeById.has(LEGACY_OK) && !api.archivedRows().some(row => row.session_id === LEGACY_OK), 'unarchive imported it back');
+  evidence.legacyRecoveredArchiveRoundTrip = true;
 
-  // --- delete with backup -> tombstone -> restore (production handlers) ---
+  // --- delete -> Windows Recycle Bin -> restore from bin -> Restore Deleted Session ---
   const deleted = await withTimeout(api.deleteSession(LEGACY_OK, true), 300000, 'deleteSession (isolated verification host included)');
   assert.equal(deleted.status, 'deleted', deleted.message);
-  assert.ok(deleted.backup_id, 'a private local recovery backup was created');
+  assert.match(deleted.message, /Windows Recycle Bin/);
+  const staged = join(api.storagePath, 'alexwonton.opencode-history-sidebar', 'deleted', deleted.backup_id);
+  const binScript = (verb: string) => `$rb=(New-Object -ComObject Shell.Application).Namespace(10); $i=$rb.Items() | ? { $_.Name -eq '${deleted.backup_id}' } | select -First 1; if ($i) { ${verb} } else { 'missing' }`;
+  const { execFileSync } = await import('node:child_process');
+  assert.notEqual(execFileSync('powershell.exe', ['-NoProfile', '-Command', binScript("'present'")], { encoding: 'utf8' }).trim(), 'missing', 'the deleted export is in the Recycle Bin');
+  execFileSync('powershell.exe', ['-NoProfile', '-Command', binScript("$i.InvokeVerb('undelete'); 'restored'")], { encoding: 'utf8' });
+  assert.ok((await api.catalog.listBackups()).some(item => item.backup_id === deleted.backup_id), `restored from the bin into ${staged}`);
   await api.refresh();
   await pollUntil('deleted row gone from the inventory', 30000, () => !api.tree.forest.treeById.has(LEGACY_OK));
   const dbCheck2 = new DatabaseSync(dbPath, { readOnly: true });

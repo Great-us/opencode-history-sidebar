@@ -10,9 +10,9 @@ Unofficial community VS Code extension for browsing and managing local OpenCode 
 - Use the magnifier in the view header to search titles or directories, and the funnel to filter by archive state (Unarchived / Archived / All).
 - Right-click a session and choose **Read-only Preview**. Content loads page by page; when new content is detected beyond the loaded range, click **Load to Latest**.
 - Right-click a main session to open an OpenCode terminal in its original working directory; child sessions offer an entry to open the parent main session's terminal.
-- Right-click to **Archive** or **Unarchive**. Archiving keeps the conversation body.
-- **Delete (Recoverable)** lists every affected session first, then creates a private local backup and verifies it can actually be restored before anything is removed. It refuses to delete when unfinished messages, queued input, known running tasks, or changes during the backup are detected.
-- Click **Restore Backup** in the view header to pick a backup and restore it. The restore scope is the verified conversation bodies, parent/child relations, original directories, and archive metadata; your project files are not part of this backup.
+- Right-click a main session and choose **Archive**: the conversation (with its child sessions) is exported, verified, and moved out of OpenCode into `~/.local/share/opencode-history-archive/<id>/`. It then appears in the **Archived** view, where **Unarchive** imports it back into OpenCode, **Delete** moves it to the Windows Recycle Bin, and the toolbar offers **Open Archive Folder** and **Empty Archive**.
+- **Delete** lists every affected session first, exports and verifies them, removes them from OpenCode, and moves the export to the Windows Recycle Bin. The extension keeps no other copy: once the Recycle Bin is emptied the conversation is gone. A delete is refused (and nothing is kept) when unfinished messages, queued input, known running tasks, or changes during the export are detected.
+- To undo a delete, restore its folder from the Windows Recycle Bin, then click **Restore Deleted Session** in the view header to import it back. The restore covers the verified conversation bodies, parent/child relations, original directories, and archive metadata; your project files are not involved.
 
 The list is **static** (since 0.2.0): it is re-read only when you press **Refresh** or after an action that changes sessions (archive, delete, restore, legacy import), and the header shows when it was last refreshed. There is no event stream, polling, or focus/visibility refresh. Between refreshes the extension runs no process: an already running OpenCode background service is reused and never stopped; when none is running, each read uses a temporary private `opencode serve` on 127.0.0.1 that is stopped (with its process tree) right after the read — the resident background service is no longer started by the extension. A new VS Code window shows the last refresh from a small JSON snapshot in the extension's storage without starting anything; only a first-ever start reads once. Previews load the Markdown renderer on first use, render only new entries on "Load More", and release their page when the tab is hidden. When the running state of another process cannot be confirmed, it stays unknown.
 
@@ -20,7 +20,7 @@ Before deleting, stop tasks that still use the affected sessions in other window
 
 Legacy leftover records are marked separately and support read-only preview and local archiving. To continue such a session or delete it, first run **Import Legacy Record into New Version** and confirm; only verified formats are imported, everything else stays previewable. Installing and normal browsing never auto-import legacy data.
 
-This extension does not upload conversations, and previews never fetch remote links or images. Recovery backups contain the original conversation text and are stored in the extension's private local directory; they are not purged automatically. Neither the packages nor the source repository contain your history or backups.
+This extension does not upload conversations, and previews never fetch remote links or images. Archived conversations are stored in `~/.local/share/opencode-history-archive`; deleted ones only exist in the Windows Recycle Bin. Neither the packages nor the source repository contain your history.
 
 If reading fails, click Refresh first, then use the gear to select your local `opencode.exe`. The view keeps the content of the last successful read and shows the error.
 
@@ -66,9 +66,9 @@ MIT. Reuses grouping, paging, rendering, and terminal-management implementations
 - 用标题栏的放大镜搜索标题或目录，用漏斗筛选归档状态（未归档 / 已归档 / 全部）。
 - 右键会话选择 **只读预览**。内容分页加载；出现新内容提示时，点 **加载到最新**。
 - 右键主会话可在原目录打开 OpenCode 终端；子会话提供打开父主会话的入口。
-- 右键归档或取消归档。归档保留正文。
-- **删除（可恢复）**会列出受影响的会话，并先生成本地备份、验证恢复能力。检测到未完成消息、排队输入、已知运行任务或备份期间的变化时会拒绝删除。
-- 点标题栏的 **恢复备份**选择记录还原。恢复范围是已验证的对话正文、父子关系、原目录及归档等元数据，项目文件不在此备份范围。
+- 右键主会话选择**归档**：会话（含子会话）经导出、验证后移出 OpenCode，存入 `~/.local/share/opencode-history-archive/<id>/`，并显示在 **Archived**（已归档）视图中。在那里可**取消归档**（导回 OpenCode）、**删除**（移入 Windows 回收站），标题栏有**打开归档文件夹**和**清空归档**。
+- **删除**会先列出受影响的会话，导出并验证后从 OpenCode 移除，导出内容移入 Windows 回收站。扩展不保留其他副本：清空回收站后即彻底删除。检测到未完成消息、排队输入、已知运行任务或导出期间的变化时会拒绝删除（且不保留任何东西）。
+- 要撤销删除：先在 Windows 回收站还原对应文件夹，再点标题栏的 **Restore Deleted Session**（恢复已删除会话）导回。恢复范围是已验证的对话正文、父子关系、原目录及归档等元数据，不涉及项目文件。
 
 列表是**静态**的（0.2.0 起）：只有点“刷新”或执行会改变会话的操作（归档、删除、恢复、导入旧版记录）后才重新读取，标题栏显示上次刷新时间。没有事件流、轮询、切回窗口或显示侧栏时的自动刷新。两次刷新之间扩展不运行任何进程：已在运行的 OpenCode 后台服务会被复用且绝不停止；没有后台服务时，每次读取临时启动一个仅监听 127.0.0.1 的私有 `opencode serve`，读完立即连同子进程一起停止——扩展不再启动常驻后台服务。新开 VS Code 窗口直接显示扩展存储中上次刷新的小型 JSON 快照，不启动任何进程；只有首次使用时会读取一次。预览首次打开才加载 Markdown 渲染器，“加载更多”只渲染新内容，标签页隐藏时释放页面。其他进程的运行状态无法确认时保留为未知。
 
@@ -76,7 +76,7 @@ MIT. Reuses grouping, paging, rendering, and terminal-management implementations
 
 旧版遗留记录会单独标注，支持只读预览和本地归档。需要继续会话或删除时，先选 **将旧版记录导入新版**并确认；仅导入经过验证的格式，其他格式仍可预览。安装和普通浏览不会自动导入旧数据。
 
-本扩展不上传对话，预览不会自动访问外链或图片。恢复备份含原始正文，保存在扩展的本地私有目录中，不自动清除。安装包与源码包不包含你的历史或备份。
+本扩展不上传对话，预览不会自动访问外链或图片。归档的会话保存在 `~/.local/share/opencode-history-archive`；删除的会话只存在于 Windows 回收站。安装包与源码包不包含你的历史。
 
 如果读取失败，可先点刷新，再使用齿轮选择本机 `opencode.exe`。界面会保留上次成功读取的内容并显示错误。
 

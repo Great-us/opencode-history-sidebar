@@ -71,6 +71,12 @@ export async function activate(context: vscode.ExtensionContext) {
   const catalog = service;
   const tree = new HistoryTree(() => inventory?.sessions ?? []);
   const view = vscode.window.createTreeView('opencodeHistory.sessions', { treeDataProvider: tree, showCollapseAll: true });
+  /** Conversations moved into the archive folder (read from manifest files, no OpenCode process). */
+  let archivedRows: CatalogRow[] = [];
+  /** Archived view: archive-folder entries plus sessions OpenCode itself flags as archived. */
+  const archivedTree = new HistoryTree(() => [...archivedRows, ...(inventory?.sessions ?? [])]);
+  archivedTree.filter = 'archived';
+  const archivedView = vscode.window.createTreeView('opencodeHistory.archived', { treeDataProvider: archivedTree, showCollapseAll: true });
   const terminals = new SessionTerminals(await SessionTerminals.owner(context.globalState), () => catalog.getEnginePath(), context.globalState, test ? { env: test.env, extraArgs: test.extraArgs } : undefined);
   const previews = new Map<string, HistoryPreview>();
   let inventory: CatalogInventory | undefined;
@@ -100,19 +106,29 @@ export async function activate(context: vscode.ExtensionContext) {
     else if (!tree.groups.length) view.message = `No matching history records (${count}). Try searching, switching the archive filter, or refreshing.`;
     else view.message = [count, ...inventory.warnings].join('\n');
   };
-  const applyRows = (rows: CatalogRow[]) => { tree.update(rows); updateDescription(); };
+  let liveRows: CatalogRow[] = [];
+  const applyRows = (rows?: CatalogRow[]) => {
+    if (rows) liveRows = rows;
+    tree.update(liveRows);
+    archivedTree.update([...archivedRows, ...liveRows]);
+    archivedView.description = `${archivedRows.length + liveRows.filter(row => row.archived).length} archived`;
+    archivedView.message = archivedTree.groups.length ? undefined : `No archived conversations. Right-click a main session in History and choose Archive to move it to ${catalog.getArchiveRoot()}.`;
+    updateDescription();
+  };
+  const reloadArchived = async () => { archivedRows = await catalog.listArchived(); };
   const saveSnapshot = async (result: CatalogInventory, at: number) => {
     const temporary = `${snapshotFile}.tmp`;
-    await writeFile(temporary, JSON.stringify({ at, inventory: result }));
+    await writeFile(temporary, JSON.stringify({ at, inventory: result, archived: archivedRows }));
     await renameFile(temporary, snapshotFile);
   };
   /** Shows the last refresh without starting any process; false when there is none. */
   const loadSnapshot = async (): Promise<boolean> => {
     try {
-      const saved = JSON.parse(await readFile(snapshotFile, 'utf8')) as { at?: unknown; inventory?: CatalogInventory };
+      const saved = JSON.parse(await readFile(snapshotFile, 'utf8')) as { at?: unknown; inventory?: CatalogInventory; archived?: CatalogRow[] };
       if (typeof saved.at !== 'number' || !saved.inventory || !Array.isArray(saved.inventory.sessions)) return false;
       inventory = saved.inventory;
       refreshedAt = saved.at;
+      archivedRows = Array.isArray(saved.archived) ? saved.archived : [];
       tree.archiveMode = saved.inventory.archive_mode;
       applyRows(saved.inventory.sessions);
       return true;
@@ -128,6 +144,8 @@ export async function activate(context: vscode.ExtensionContext) {
       refreshedAt = Date.now();
       await terminals.reconnect(result.sessions);
       tree.archiveMode = result.archive_mode;
+      archivedTree.archiveMode = result.archive_mode;
+      await reloadArchived();
       applyRows(await terminals.withOwnedWorkspaces(result.sessions));
       // Open previews learn about the user-requested refresh (tail hint only; no automatic reads).
       for (const [id, preview] of previews) preview.onCatalogChanged(result.sessions.find(row => row.session_id === id), { contentSignal: true });
@@ -140,11 +158,68 @@ export async function activate(context: vscode.ExtensionContext) {
     return refreshing;
   };
   const register = (name: string, handler: (...args: any[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(`opencodeHistory.${name}`, async (...args) => { try { return await handler(...args); } catch (error) { report(error); return undefined; } }));
-  const setArchived = async (value: HistoryNode | string, archived: boolean) => {
-    const row = tree.row(value);
-    await catalog.setArchived(row.session_id, archived);
-    await refresh();
+  /** Finds a row in History or in the Archived view (archive-folder entries live only there). */
+  const rowOf = (value: HistoryNode | string): CatalogRow => {
+    if (typeof value !== 'string') return value?.type === 'session' ? value.tree.row : tree.row(value);
+    return tree.forest.treeById.get(value)?.row ?? archivedTree.row(value);
   };
+  /**
+   * Archive: a normal main session is moved OUT of OpenCode into the archive
+   * folder (verified export, then removal). Legacy rows keep their local mark.
+   * Unarchive: an archive-folder entry is imported back; a session that
+   * OpenCode itself flags as archived just has the flag cleared.
+   */
+  const setArchived = async (value: HistoryNode | string, archived: boolean) => {
+    const row = rowOf(value);
+    if (archived) {
+      if (isLegacyRow(row)) { await catalog.setArchived(row.session_id, true); await refresh(); return undefined; }
+      if (row.kind !== 'root' || row.parent_session_id) throw new Error('Only main sessions can be archived; their child sessions move together with them.');
+      const inUse = terminals.inUseIds();
+      if (inUse.has(row.session_id)) throw new Error('The OpenCode terminal for this session is still open. Close it first.');
+      const result = await catalog.archiveSession(row.session_id, inUse);
+      await refresh();
+      if (result.status === 'archived') void vscode.window.showInformationMessage(`OpenCode History: ${result.message}`);
+      else void vscode.window.showWarningMessage(`OpenCode History: ${result.message}`);
+      return result;
+    }
+    if (row.archive_id) {
+      const result = await catalog.unarchiveSession(row.archive_id);
+      await refresh();
+      if (result.status === 'restored') void vscode.window.showInformationMessage(`OpenCode History: "${row.title || row.session_id}" is back in OpenCode.`);
+      else void vscode.window.showWarningMessage(`OpenCode History: ${result.message}`);
+      return result;
+    }
+    await catalog.setArchived(row.session_id, false);
+    await refresh();
+    return undefined;
+  };
+  /** Empty Archive: every archive-folder entry goes to the Windows Recycle Bin. */
+  const emptyArchive = async (confirmed = false) => {
+    await reloadArchived();
+    applyRows();
+    if (!archivedRows.length) { void vscode.window.showInformationMessage('OpenCode History: the archive folder is already empty.'); return { recycled: 0, failed: [] as string[] }; }
+    if (!confirmed) {
+      const choice = await vscode.window.showWarningMessage(`Move all ${archivedRows.length} archived conversation(s) to the Windows Recycle Bin?`, { modal: true, detail: `${archivedRows.map(row => row.title || row.session_id).join('\n')}\n\nThey can still be restored from the Windows Recycle Bin until it is emptied (restore puts them back into the archive folder).` }, 'Move All to Recycle Bin');
+      if (choice !== 'Move All to Recycle Bin') return undefined;
+    }
+    const failed: string[] = [];
+    let recycled = 0;
+    for (const row of [...archivedRows]) {
+      const result = await catalog.recycleArchived(row.archive_id!).catch(error => ({ status: 'partial' as const, message: error instanceof Error ? error.message : String(error) }));
+      if (result.status === 'recycled') recycled += 1; else failed.push(`${row.title || row.session_id}: ${result.message}`);
+    }
+    await reloadArchived();
+    applyRows();
+    if (inventory && refreshedAt) void saveSnapshot(inventory, refreshedAt).catch(() => undefined);
+    if (failed.length) void vscode.window.showWarningMessage(`OpenCode History: moved ${recycled} to the Recycle Bin; ${failed.length} failed.`, { modal: false, detail: failed.join('\n') });
+    else void vscode.window.showInformationMessage(`OpenCode History: moved ${recycled} archived conversation(s) to the Windows Recycle Bin.`);
+    return { recycled, failed };
+  };
+  register('emptyArchive', () => emptyArchive());
+  register('openArchiveFolder', async () => {
+    await mkdir(catalog.getArchiveRoot(), { recursive: true });
+    await vscode.env.openExternal(vscode.Uri.file(catalog.getArchiveRoot()));
+  });
   register('refresh', () => refresh());
   register('search', async () => {
     const query = await vscode.window.showInputBox({ title: 'Search OpenCode History', prompt: 'Enter a title or folder path; clear to show everything. Parents stay visible when a child matches.', value: tree.query });
@@ -164,12 +239,12 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   register('restore', async () => {
     const backups = await catalog.listBackups();
-    if (!backups.length) { void vscode.window.showInformationMessage('OpenCode History: no recoverable backups yet.'); return undefined; }
+    if (!backups.length) { void vscode.window.showInformationMessage('OpenCode History: nothing to restore. Deleted conversations are in the Windows Recycle Bin; restore one there first, then run this command.'); return undefined; }
     const choice = await vscode.window.showQuickPick(backups.map(backup => ({
       label: backup.title || backup.backup_id,
       description: backup.backup_id,
-      detail: `${new Date(backup.created_at).toLocaleString()} · ${backup.session_ids.length} sessions · ${backup.status === 'available' ? 'restorable' : backup.status === 'partial' ? 'partial backup' : 'already restored'}`,
-    })), { title: 'OpenCode History · Restore Backup', placeHolder: 'Select a private local backup to restore' });
+      detail: `${new Date(backup.created_at).toLocaleString()} · ${backup.session_ids.length} sessions · ${backup.status === 'available' ? 'ready to import' : 'partial'}`,
+    })), { title: 'OpenCode History · Restore Deleted Session', placeHolder: 'Deleted conversations restored from the Windows Recycle Bin' });
     if (!choice) return undefined;
     const result = await catalog.restoreBackup(choice.description);
     if (result.status === 'restored') { await refresh(); void vscode.window.showInformationMessage(result.message); }
@@ -211,15 +286,27 @@ export async function activate(context: vscode.ExtensionContext) {
   };
   register('recoverLegacy', (value: HistoryNode | string) => recoverLegacy(value));
   const deleteSession = async (value: HistoryNode | string, confirmed = false) => {
-    const row = tree.row(value);
+    const row = rowOf(value);
+    if (row.archive_id) {
+      if (!confirmed) {
+        const choice = await vscode.window.showWarningMessage(`Move the archived conversation "${row.title || row.session_id}" to the Windows Recycle Bin?`, { modal: true, detail: `${row.archived_sub_records ? `Includes ${row.archived_sub_records} child session(s).\n` : ''}It can be restored from the Windows Recycle Bin until the Recycle Bin is emptied (restore puts it back into the archive folder).` }, 'Move to Recycle Bin');
+        if (choice !== 'Move to Recycle Bin') return undefined;
+      }
+      const result = await catalog.recycleArchived(row.archive_id);
+      await reloadArchived();
+      applyRows();
+      if (inventory && refreshedAt) void saveSnapshot(inventory, refreshedAt).catch(() => undefined);
+      if (result.status === 'recycled') void vscode.window.showInformationMessage(`OpenCode History: ${result.message}`); else void vscode.window.showWarningMessage(`OpenCode History: ${result.message}`);
+      return result;
+    }
     if (isLegacyRow(row)) throw new Error('Legacy records have no official delete route and cannot be deleted directly. Run "Import Legacy Record into New Version" first; after a successful import you can delete normally.');
     const descendants = tree.forest.treeById.get(row.session_id)?.descendants ?? [];
     const scope: CatalogRow[] = [row, ...descendants];
     const inUse = terminals.inUseIds();
     if (scope.some(item => inUse.has(item.session_id))) throw new Error('The OpenCode terminal for this session or one of its child records is still open. Close the corresponding terminal first.');
     if (!confirmed) {
-      const choice = await vscode.window.showWarningMessage(`Delete (recoverable) "${row.title || row.session_id}" and its ${descendants.length} child records?`, { modal: true, detail: `Delete scope (by parent/child relation, not by directory):\n${scope.map(item => `${item.title || item.session_id} (${item.session_id})`).join('\n')}\n\nBefore deleting, a private local recovery backup is created (kept only in this extension's private directory, never purged automatically); it covers the verified conversation bodies and key metadata and can be restored at any time from "Restore Backup".\nStop tasks in other windows or terminals that are still using these sessions first, and do not keep writing while the deletion runs.\nIf you are unsure whether a session is still in use, archive or cancel it now and delete later.\nOther programs may still write concurrently during the deletion; the extension re-checks before deleting and refuses a delete with unfinished content, but cross-process atomic losslessness cannot be promised.` }, 'Delete (Recoverable)');
-      if (choice !== 'Delete (Recoverable)') return undefined;
+      const choice = await vscode.window.showWarningMessage(`Delete "${row.title || row.session_id}" and its ${descendants.length} child session(s)?`, { modal: true, detail: `Scope (by parent/child relation):\n${scope.map(item => `${item.title || item.session_id} (${item.session_id})`).join('\n')}\n\nThe conversation is removed from OpenCode and its exported copy goes to the Windows Recycle Bin. The extension keeps no other copy: once the Recycle Bin is emptied it is gone. To undo before that, restore it from the Recycle Bin and run "Restore Deleted Session".\nStop tasks in other windows that still use these sessions first; a delete with unfinished content is refused.` }, 'Delete');
+      if (choice !== 'Delete') return undefined;
     }
     const result = await catalog.deleteSession(row.session_id, inUse);
     if (result.status === 'deleted') {
@@ -232,7 +319,7 @@ export async function activate(context: vscode.ExtensionContext) {
     return result;
   };
   register('delete', (value: HistoryNode | string) => deleteSession(value));
-  context.subscriptions.push(tree, view, terminals,
+  context.subscriptions.push(tree, view, archivedTree, archivedView, terminals,
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('opencodeHistory.enginePath') && !test) {
         const path = vscode.workspace.getConfiguration('opencodeHistory').get<string>('enginePath');
@@ -269,7 +356,7 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   }
   // Only the isolated development/test host receives direct validation hooks.
-  return test ? { ready, tree, view, terminals, catalog, refresh, setArchived, recoverLegacy, deleteSession, previews, globalState: context.globalState, storagePath: join(context.globalStorageUri.fsPath, '..') } : { ready };
+  return test ? { ready, tree, view, archivedTree, archivedView, archivedRows: () => archivedRows, terminals, catalog, refresh, setArchived, emptyArchive, recoverLegacy, deleteSession, previews, globalState: context.globalState, storagePath: join(context.globalStorageUri.fsPath, '..') } : { ready };
 }
 
 export async function deactivate(): Promise<void> { await service?.dispose(); service = undefined; }

@@ -42,15 +42,18 @@
  * dual explicit locations, after a private raw backup and a verified-shape
  * check that refuses anything not proven lossless.
  */
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { cp, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { moveFolderToRecycleBin } from "./recycleBin";
 import { stat } from "node:fs/promises";
 import type {
   BackupSummary,
+  CatalogArchiveResult,
   CatalogDeleteResult,
   CatalogHistoryPage,
   CatalogInventory,
   CatalogRestoreResult,
+  CatalogRow,
 } from "../shared/sessionCatalog";
 import { databaseFile, dataRoot, effectiveEnv } from "./paths";
 import { discoverEngine, loadEngineChoice, saveEngineChoice } from "./engine";
@@ -155,6 +158,10 @@ export class CatalogService {
   private readonly env: NodeJS.ProcessEnv;
   private readonly connection: OpenCodeServiceConnection;
   private readonly backups: BackupStore;
+  /** Recycle Bin staging: a deleted conversation's export sits here only until it is sent to the Windows Recycle Bin (and returns here if restored from it). */
+  private readonly deletedStore: BackupStore;
+  /** Archive folder: conversations moved out of OpenCode, `~/.local/share/opencode-history-archive/<id>/`. */
+  private readonly archiveStore: BackupStore;
   private readonly execution = new ExecutionTracker();
   private readonly channel: LiveChannel;
   private readonly channelListeners = new Set<(batch: CatalogChangeBatch) => void>();
@@ -174,6 +181,8 @@ export class CatalogService {
     // discovered anything, so first use failed even with an installed engine.
     this.connection = new OpenCodeServiceConnection(this.env, () => this.resolveEngine(false));
     this.backups = new BackupStore(this.storagePath);
+    this.deletedStore = new BackupStore(this.storagePath, "deleted");
+    this.archiveStore = new BackupStore(dirname(dataRoot(this.env)), "opencode-history-archive");
     this.channel = new LiveChannel({
       connection: this.connection,
       env: this.env,
@@ -754,8 +763,9 @@ export class CatalogService {
     }
   }
 
+  /** Deleted conversations that are back from the Windows Recycle Bin (or could not be sent there), ready to import again. */
   async listBackups(): Promise<BackupSummary[]> {
-    const manifests = await this.backups.list();
+    const manifests = (await this.deletedStore.list()).filter(manifest => manifest.status !== "restored");
     return manifests.map(manifest => ({
       backup_id: manifest.backup_id,
       created_at: manifest.created_at,
@@ -766,9 +776,9 @@ export class CatalogService {
   }
 
   /** Restore parent-first; existing sessions are reported, never overwritten. */
-  private async restoreBackupNow(backupId: string): Promise<CatalogRestoreResult> {
+  private async restoreBackupNow(backupId: string, store: BackupStore = this.backups): Promise<CatalogRestoreResult> {
     this.assertLive();
-    const manifest = await this.backups.read(backupId);
+    const manifest = await store.read(backupId);
     const members = this.parentsFirstManifest(manifest);
     const restored: string[] = [];
     const conflicts: string[] = [];
@@ -779,7 +789,7 @@ export class CatalogService {
           conflicts.push(member.session_id);
           continue;
         }
-        const envelope = await this.backups.envelope(backupId, member);
+        const envelope = await store.envelope(backupId, member);
         await importSession(this.connection, envelope);
         const verified = await this.verifyRestored(member, envelope);
         if (!verified.ok) {
@@ -800,9 +810,9 @@ export class CatalogService {
       ? `Restored ${restored.length} sessions (including child-session relations, archive state, and messages).`
       : `Restored ${restored.length} sessions; ${problems.join("; ")}.`;
     if (status === "restored") {
-      await this.backups.write({ ...manifest, status: "restored", message });
+      await store.write({ ...manifest, status: "restored", message });
     } else if (restored.length > 0 || conflicts.length > 0) {
-      await this.backups.write({ ...manifest, status: "partial", message });
+      await store.write({ ...manifest, status: "partial", message });
     }
     return { status, message, restored_session_ids: restored };
   }
@@ -1192,9 +1202,103 @@ export class CatalogService {
 
   setArchived(sessionId: string, archived: boolean): Promise<void> { return this.using(() => this.setArchivedNow(sessionId, archived)); }
 
-  deleteSession(sessionId: string, inUseIds?: ReadonlySet<string>): Promise<CatalogDeleteResult> { return this.using(() => this.deleteSessionNow(sessionId, inUseIds)); }
+  // ------------------------------------------- delete / archive policy ---
+  //
+  // User decision 2026-11-05: Delete = into the Windows Recycle Bin, with no
+  // hidden backup kept by the extension; Archive = moved out of OpenCode into
+  // the archive folder, Unarchive imports it back. Both reuse the verified
+  // export + delete pipeline (in-use refusal, isolated restore proof) and then
+  // move its export folder to its final place.
 
-  restoreBackup(backupId: string): Promise<CatalogRestoreResult> { return this.using(() => this.restoreBackupNow(backupId)); }
+  /** Moves one export folder between stores (same volume: rename; otherwise copy then remove). */
+  private async relocate(from: BackupStore, to: BackupStore, backupId: string): Promise<string> {
+    const source = from.dir(backupId);
+    const target = to.dir(backupId);
+    await mkdir(to.root(), { recursive: true });
+    try { await rename(source, target); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+      await cp(source, target, { recursive: true });
+      await rm(source, { recursive: true, force: true });
+    }
+    return target;
+  }
+
+  /** A refused delete removed nothing, so its temporary export is not kept either. */
+  private async rethrowRefusal(error: unknown): Promise<never> {
+    if (error instanceof DeleteRefusedError && error.backupId) {
+      await rm(this.backups.dir(error.backupId), { recursive: true, force: true }).catch(() => undefined);
+      throw new DeleteRefusedError(`${error.message.replace(/\s*(Recovery )?[Bb]ackup \S+ is retained[^.]*\./g, "").trim()} Nothing was removed; the temporary export was discarded.`, null);
+    }
+    throw error;
+  }
+
+  deleteSession(sessionId: string, inUseIds?: ReadonlySet<string>): Promise<CatalogDeleteResult> {
+    return this.using(async () => {
+      let result: CatalogDeleteResult;
+      try { result = await this.deleteSessionNow(sessionId, inUseIds); }
+      catch (error) { return this.rethrowRefusal(error); }
+      if (!result.backup_id) return result;
+      const staged = await this.relocate(this.backups, this.deletedStore, result.backup_id);
+      const outcome = await moveFolderToRecycleBin(staged, this.env);
+      const where = outcome.ok
+        ? "It is in the Windows Recycle Bin. To undo, restore it from the Recycle Bin, then use \"Restore Deleted Session\"."
+        : `It could not be moved to the Recycle Bin (${outcome.message}). Its export stays at ${staged}; "Restore Deleted Session" can bring it back.`;
+      return { ...result, message: result.status === "deleted" ? `Deleted ${result.deleted_session_ids.length} session(s) from OpenCode. ${where}` : `${result.message} ${where}` };
+    });
+  }
+
+  /** Archive: remove the conversation (and its child sessions) from OpenCode into the archive folder. */
+  archiveSession(sessionId: string, inUseIds?: ReadonlySet<string>): Promise<CatalogArchiveResult> {
+    return this.using(async () => {
+      let result: CatalogDeleteResult;
+      try { result = await this.deleteSessionNow(sessionId, inUseIds); }
+      catch (error) { return this.rethrowRefusal(error); }
+      if (!result.backup_id) return { status: "partial", message: result.message, archive_id: "", session_ids: [], location: "" };
+      const location = await this.relocate(this.backups, this.archiveStore, result.backup_id);
+      return result.status === "deleted"
+        ? { status: "archived", message: `Moved ${result.deleted_session_ids.length} session(s) out of OpenCode into the archive folder: ${location}`, archive_id: result.backup_id, session_ids: result.deleted_session_ids, location }
+        : { status: "partial", message: `${result.message} The export was placed in the archive folder: ${location}`, archive_id: result.backup_id, session_ids: result.deleted_session_ids, location };
+    });
+  }
+
+  /** Unarchive: import the archived conversation back into OpenCode, then remove it from the archive folder. */
+  unarchiveSession(archiveId: string): Promise<CatalogRestoreResult> {
+    return this.using(async () => {
+      const result = await this.restoreBackupNow(archiveId, this.archiveStore);
+      if (result.status === "restored") await rm(this.archiveStore.dir(archiveId), { recursive: true, force: true });
+      return result;
+    });
+  }
+
+  /** Deleting from the archive sends the archived folder to the Windows Recycle Bin. */
+  async recycleArchived(archiveId: string): Promise<{ status: "recycled" | "partial"; message: string }> {
+    const outcome = await moveFolderToRecycleBin(this.archiveStore.dir(archiveId), this.env);
+    return { status: outcome.ok ? "recycled" : "partial", message: outcome.message };
+  }
+
+  getArchiveRoot(): string { return this.archiveStore.root(); }
+
+  /** Archived conversations as sidebar rows (manifest files only; no OpenCode process). */
+  async listArchived(): Promise<CatalogRow[]> {
+    return (await this.archiveStore.list()).filter(manifest => manifest.status !== "restored" && manifest.members.length > 0).map(manifest => {
+      const root = manifest.members[0];
+      return {
+        session_id: root.session_id, workspace: root.directory ?? "", title: manifest.title, kind: "root", parent_session_id: null,
+        archived: true, created_at: manifest.created_at, updated_at: manifest.created_at, workspace_exists: false,
+        archive_id: manifest.backup_id, archived_at: manifest.created_at, archived_sub_records: manifest.members.length - 1,
+      };
+    });
+  }
+
+  /** Restore a deleted conversation whose folder is back from the Windows Recycle Bin. */
+  restoreBackup(backupId: string): Promise<CatalogRestoreResult> {
+    return this.using(async () => {
+      const result = await this.restoreBackupNow(backupId, this.deletedStore);
+      if (result.status === "restored") await rm(this.deletedStore.dir(backupId), { recursive: true, force: true });
+      return result;
+    });
+  }
 
   recoverLegacySession(sessionId: string): Promise<CatalogRestoreResult> { return this.using(() => this.recoverLegacySessionNow(sessionId)); }
 }

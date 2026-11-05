@@ -24,6 +24,12 @@ export interface CatalogRow {
   parent_session_id?: string | null;
   /** Official archive state from the backend DTO (Session.Info time.archived != null). */
   archived: boolean;
+  /** Set only for conversations moved to the archive folder (removed from OpenCode): the archive entry id. */
+  archive_id?: string;
+  /** When the conversation was moved to the archive folder. */
+  archived_at?: string;
+  /** Number of child sessions archived together with it. */
+  archived_sub_records?: number;
   created_at?: string | null;
   updated_at?: string | null;
   workspace_exists: boolean;
@@ -109,6 +115,15 @@ export interface BackupSummary {
   session_ids: string[];
   title: string;
   status: "available" | "partial" | "restored";
+}
+
+/** Result of moving a conversation out of OpenCode into the archive folder. */
+export interface CatalogArchiveResult {
+  status: "archived" | "partial";
+  message: string;
+  archive_id: string;
+  session_ids: string[];
+  location: string;
 }
 
 /** Result of restoring a backup through the backend (backend contract). */

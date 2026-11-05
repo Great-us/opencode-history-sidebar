@@ -40,13 +40,14 @@ export interface BackupManifest {
 }
 
 export class BackupStore {
-  constructor(private readonly storagePath: string) {}
+  /** `rootName` selects the folder under `storagePath` (private backups, Recycle Bin staging, archive). */
+  constructor(private readonly storagePath: string, private readonly rootName = "backups") {}
 
-  private root(): string {
-    return join(this.storagePath, "backups");
+  root(): string {
+    return join(this.storagePath, this.rootName);
   }
 
-  private dir(backupId: string): string {
+  dir(backupId: string): string {
     if (!/^[A-Za-z0-9._-]+$/.test(backupId)) throw new Error(`Invalid backup identifier: ${backupId}`);
     return join(this.root(), backupId);
   }

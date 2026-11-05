@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- **Delete moves the conversation to the Windows Recycle Bin**: it is exported and verified, removed from OpenCode, and the export folder goes to the Recycle Bin. The extension no longer keeps private backups; a refused delete discards its temporary export. To undo, restore the folder from the Recycle Bin and run **Restore Deleted Session**.
+- **Archive moves the conversation out of OpenCode** into `~/.local/share/opencode-history-archive/<id>/`; **Unarchive** imports it back. Only main sessions can be archived; child sessions move with them.
+- New **Archived** view with Unarchive, Delete (to the Recycle Bin), **Open Archive Folder** and **Empty Archive**.
+
 ## 0.2.0
 
 - **Static sidebar, refresh on demand.** History is read only when you press **Refresh** or run an action that changes sessions (archive, delete, restore, legacy import). The SSE event stream, the 2-second database polling, the periodic reconciliation and the focus, visibility and terminal-close refreshes were removed. The view header shows when it was last refreshed.

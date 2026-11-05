@@ -3,7 +3,7 @@
   "displayName": "OpenCode History",
   "description": "Browse local OpenCode history by workspace folder and reopen session terminals in their original working directory; a static, refresh-on-demand sidebar with no background processes.",
   "publisher": "AlexWonton",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "engines": {
     "vscode": "^1.144.0"
@@ -53,6 +53,11 @@
           "id": "opencodeHistory.sessions",
           "name": "History",
           "icon": "media/opencode.svg"
+        },
+        {
+          "id": "opencodeHistory.archived",
+          "name": "Archived",
+          "icon": "media/opencode.svg"
         }
       ]
     },
@@ -79,7 +84,7 @@
       },
       {
         "command": "opencodeHistory.restore",
-        "title": "OpenCode: Restore Backup",
+        "title": "OpenCode: Restore Deleted Session (after restoring it from the Recycle Bin)",
         "icon": "$(history)"
       },
       {
@@ -96,19 +101,29 @@
       },
       {
         "command": "opencodeHistory.archive",
-        "title": "OpenCode: Archive"
+        "title": "OpenCode: Archive (Move to Archive Folder)"
       },
       {
         "command": "opencodeHistory.unarchive",
-        "title": "OpenCode: Unarchive"
+        "title": "OpenCode: Unarchive (Back into OpenCode)"
       },
       {
         "command": "opencodeHistory.delete",
-        "title": "OpenCode: Delete (Recoverable)"
+        "title": "OpenCode: Delete (Move to Windows Recycle Bin)"
       },
       {
         "command": "opencodeHistory.recoverLegacy",
         "title": "OpenCode: Import Legacy Record into New Version"
+      },
+      {
+        "command": "opencodeHistory.emptyArchive",
+        "title": "OpenCode: Empty Archive (Move All to Recycle Bin)",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "opencodeHistory.openArchiveFolder",
+        "title": "OpenCode: Open Archive Folder",
+        "icon": "$(folder-opened)"
       }
     ],
     "menus": {
@@ -137,42 +152,57 @@
           "command": "opencodeHistory.restore",
           "when": "view == opencodeHistory.sessions",
           "group": "navigation@5"
+        },
+        {
+          "command": "opencodeHistory.refresh",
+          "when": "view == opencodeHistory.archived",
+          "group": "navigation@1"
+        },
+        {
+          "command": "opencodeHistory.openArchiveFolder",
+          "when": "view == opencodeHistory.archived",
+          "group": "navigation@2"
+        },
+        {
+          "command": "opencodeHistory.emptyArchive",
+          "when": "view == opencodeHistory.archived",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
         {
           "command": "opencodeHistory.preview",
-          "when": "view == opencodeHistory.sessions && viewItem =~ /session/",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /session/ && !(viewItem =~ /archivedEntry/)",
           "group": "1_open@1"
         },
         {
           "command": "opencodeHistory.open",
-          "when": "view == opencodeHistory.sessions && viewItem =~ /root/ && !(viewItem =~ /legacy/)",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /root/ && !(viewItem =~ /legacy/) && !(viewItem =~ /archivedEntry/)",
           "group": "1_open@2"
         },
         {
           "command": "opencodeHistory.openParent",
-          "when": "view == opencodeHistory.sessions && viewItem =~ /child/ && !(viewItem =~ /legacy/)",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /child/ && !(viewItem =~ /legacy/) && !(viewItem =~ /archivedEntry/)",
           "group": "1_open@2"
         },
         {
           "command": "opencodeHistory.archive",
-          "when": "view == opencodeHistory.sessions && viewItem =~ /session/ && !(viewItem =~ /selfArchived/)",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /session-root|legacy/ && !(viewItem =~ /selfArchived/)",
           "group": "2_manage@1"
         },
         {
           "command": "opencodeHistory.unarchive",
-          "when": "view == opencodeHistory.sessions && viewItem =~ /selfArchived/",
+          "when": "view == opencodeHistory.archived && viewItem =~ /archivedEntry|selfArchived/",
           "group": "2_manage@1"
         },
         {
           "command": "opencodeHistory.delete",
-          "when": "view == opencodeHistory.sessions && viewItem =~ /session/ && !(viewItem =~ /legacy/)",
+          "when": "(view == opencodeHistory.sessions || view == opencodeHistory.archived) && viewItem =~ /session|archivedEntry/ && !(viewItem =~ /legacy/)",
           "group": "3_delete"
         },
         {
           "command": "opencodeHistory.recoverLegacy",
-          "when": "view == opencodeHistory.sessions && viewItem =~ /legacy/",
+          "when": "view == opencodeHistory.sessions && viewItem =~ /legacy/ && !(viewItem =~ /archivedEntry/)",
           "group": "4_legacy"
         }
       ]
