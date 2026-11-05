@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- **Static sidebar, refresh on demand.** History is read only when you press **Refresh** or run an action that changes sessions (archive, delete, restore, legacy import). The SSE event stream, the 2-second database polling, the periodic reconciliation and the focus, visibility and terminal-close refreshes were removed. The view header shows when it was last refreshed.
+- **No resident processes.** An already running OpenCode background service is reused untouched, as before. When none is running, the extension no longer starts the resident background service (`opencode service start`, ~70 MB that stayed after VS Code closed); each read uses a private temporary `opencode serve` on 127.0.0.1 that is stopped, with its whole process tree, right after the read.
+- **Instant startup from the last refresh.** The result of the last refresh is saved as a small JSON snapshot in the extension's storage; a new VS Code window shows it without starting any process. Only a first-ever start reads once when the view is first shown.
+- **Lighter previews.** The Markdown renderer loads on the first preview, "Load more" renders only new or replaced entries, and hidden preview tabs no longer keep their page alive in memory.
+
 ## 0.1.2
 
 - Added an original folder-and-history app icon, a theme-aware activity bar icon, and a matching documentation logo.

@@ -101,8 +101,8 @@ after(async () => {
   await runEngineStop(sandbox.env).catch(() => undefined);
 });
 
-describe("cold start", () => {
-  test("auto-discovers engine on PATH, starts own service, serves inventory", async () => {
+describe("cold start (static sidebar: no resident processes)", () => {
+  test("with no service running, a refresh uses a temporary private server, then stops it", async () => {
     // No enginePath option, no persisted engine choice (fresh storagePath),
     // PATH is the ONLY discovery source: the real engine directory prepended.
     const env: NodeJS.ProcessEnv = {
@@ -111,36 +111,26 @@ describe("cold start", () => {
     };
     service = new CatalogService({ storagePath: sandbox.storagePath, env });
 
-    // Subscribe BEFORE refresh — the subscribe-before-snapshot path must also
-    // survive the cold start (connection triggered by the live channel).
-    let batches = 0;
-    const subscription = service.subscribeChanges(() => { batches += 1; });
-
     const inventory = await service.refresh();
-    const warning = inventory.warnings.find(w => w.includes("started it with the official command"));
-    assert.ok(warning, `expected own-service-started warning, got: ${JSON.stringify(inventory.warnings)}`);
-
-    // Dynamic dedicated port: never the default port.
-    const { port } = serviceUrl(env);
-    assert.notEqual(port, DEFAULT_PORT, "cold-start service must not bind the default port");
-    assert.notEqual(port, "", "cold-start service must bind an explicit dynamic port");
-
-    // The pre-seeded synthetic session is readable through the auto-started service.
+    const warning = inventory.warnings.find(w => w.includes("temporary private OpenCode server"));
+    assert.ok(warning, `expected temporary-server note, got: ${JSON.stringify(inventory.warnings)}`);
     assert.ok(inventory.sessions.some(row => row.session_id === seededId), "seeded session missing from cold-start inventory");
     assert.equal(inventory.archive_mode, "native");
+    assert.equal(service.privateServerRunning, false, "the temporary server is stopped right after the read");
+    assert.equal(await infoAlive("", sandbox.env), false, "the resident background service was NOT started");
+
+    // A preview read follows the same lifetime.
+    const page = await service.readHistory(seededId);
+    assert.ok(page.entries.length > 0, "history readable through the temporary server");
+    assert.equal(service.privateServerRunning, false);
 
     // Discovery result is exposed correctly.
     assert.equal(await service.getEnginePath(), ENGINE);
-
-    subscription.dispose();
   });
 
-  test("dispose does not stop the service; explicit stop is the test's own", async () => {
-    const { url } = serviceUrl(sandbox.env);
+  test("dispose leaves nothing running", async () => {
     await service.dispose();
-    assert.equal(await infoAlive(url, sandbox.env), true, "CatalogService.dispose must not stop the shared service");
-    const stop = await runEngineStop(sandbox.env);
-    assert.equal(stop.code, 0, `explicit sandbox service stop failed: ${stop.output.slice(0, 300)}`);
-    assert.equal(await infoAlive(url, sandbox.env), false, "sandbox service should be stopped after explicit stop");
+    assert.equal(service.privateServerRunning, false);
+    assert.equal(await infoAlive("", sandbox.env), false);
   });
 });

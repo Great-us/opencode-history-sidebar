@@ -8,12 +8,12 @@
  * Basic `opencode:<password>`. The password lives only in memory inside this
  * class — it is never logged, serialized, persisted or shipped with a result.
  *
- * Per the supervisor integration decision (contract 2026-11-02): an absent or
- * stale service must not make the sidebar silently empty, and starting the
- * official local service (`<engine> service start`) to provide the functioning
- * UI is part of this task. An existing live service is reused untouched; we
- * never call `service stop` against a shared user service from here (only
- * test code stops services it started itself, via its own CLI call).
+ * Resource rule (user decision 2026-11-05, static sidebar): an existing live
+ * background service is reused untouched and never stopped. When none is
+ * running, the extension does NOT start the resident background service any
+ * more; it starts a private, temporary `<engine> serve` bound to 127.0.0.1
+ * (OpenCode's documented standalone mode, same data), and `release()` stops
+ * it as soon as the user-triggered operation finished.
  *
  * Only probe-verified endpoints are used (work/opencode-probe, §4):
  *   GET    /api/session?limit&cursor&order&parentID&archived&directory...
@@ -26,8 +26,10 @@
  *   GET    /api/event                   (SSE; process-local scope, live probe)
  * HTTP status codes are authoritative — never a CLI exit code.
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { serviceFile } from "./paths";
 
@@ -154,28 +156,40 @@ export function unwrapData<T>(value: unknown): T {
   return value as T;
 }
 
+/** Ask the OS for a currently free loopback TCP port (listened, then released). */
+function ephemeralPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const listener = createServer();
+    listener.on("error", reject);
+    listener.listen(0, "127.0.0.1", () => {
+      const address = listener.address();
+      if (address === null || typeof address === "string") { reject(new Error("Cannot obtain an ephemeral port.")); return; }
+      const port = address.port;
+      listener.close(() => resolve(port));
+    });
+  });
+}
+
 export class OpenCodeServiceConnection {
   private handle: ServiceHandle | null = null;
-  private started = false;
   private starting: Promise<ServiceHandle> | null = null;
-  /** Set when this connection itself launched the service (reported honestly). */
-  public readonly startedByExtension = (): boolean => this.started;
+  /** The private temporary server this connection started, if any. */
+  private privateServer: { child: ChildProcess; handle: ServiceHandle } | null = null;
+  private usedPrivate = false;
+  /** True when the last connection used a private temporary server (reported honestly). */
+  public readonly startedByExtension = (): boolean => this.usedPrivate;
 
   /**
-   * Cold-start fix: the engine callback may resolve lazily and asynchronously
-   * (real discovery over persisted choice / npm global / PATH when no explicit
-   * enginePath is configured), so a Promise result is allowed and awaited
-   * before any `service start` is attempted.
+   * The engine callback may resolve lazily and asynchronously (persisted
+   * choice / npm global / PATH discovery), so a Promise result is allowed.
    */
   constructor(
     private readonly env: NodeJS.ProcessEnv,
     private readonly enginePath: () => string | null | Promise<string | null>,
   ) {}
 
-  /** Current service handle, connecting (and if allowed, starting) on demand. */
+  /** Current server handle: the running background service, else a private temporary server. */
   connect(): Promise<ServiceHandle> {
-    // One restarter at a time: a live-channel reconnect racing a user refresh
-    // must never spawn two `service start` processes for the same data root.
     if (this.starting !== null) return this.starting;
     const attempt = this.connectOnce();
     this.starting = attempt;
@@ -186,14 +200,15 @@ export class OpenCodeServiceConnection {
   private async connectOnce(): Promise<ServiceHandle> {
     if (this.handle !== null) {
       if (await this.ping(this.handle)) return this.handle;
-      this.handle = null; // stale discovery file: url no longer answers
+      this.handle = null; // stale: no longer answers
     }
     const existing = await readServiceFile(serviceFile(this.env));
     if (existing !== null && (await this.ping(existing))) {
       this.handle = existing;
+      this.usedPrivate = false;
       return existing;
     }
-    return this.startServiceAndConnect();
+    return this.startPrivateServer();
   }
 
   private async ping(service: ServiceHandle): Promise<boolean> {
@@ -206,38 +221,63 @@ export class OpenCodeServiceConnection {
     }
   }
 
-  private async startServiceAndConnect(): Promise<ServiceHandle> {
+  private async startPrivateServer(): Promise<ServiceHandle> {
     const engine = await this.enginePath();
     if (engine === null) {
-      throw new OpenCodeApiError("No OpenCode background service is available, and no native OpenCode engine was found on this machine to start one. Select the engine path in the settings.");
+      throw new OpenCodeApiError("No OpenCode background service is running, and no native OpenCode engine was found on this machine to read the history. Select the engine path in the settings.");
     }
-    const exit = await new Promise<{ code: number | null; stderr: string }>(resolve => {
-      const child = spawn(engine, ["service", "start"], {
-        env: this.env,
-        stdio: ["ignore", "ignore", "pipe"],
-        windowsHide: true,
-      });
-      let stderr = "";
-      child.stderr?.on("data", chunk => { stderr += String(chunk); });
-      child.on("error", error => resolve({ code: -1, stderr: error.message }));
-      child.on("close", code => resolve({ code, stderr }));
+    const password = randomBytes(18).toString("base64url");
+    const port = await ephemeralPort();
+    const child = spawn(engine, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+      env: { ...this.env, OPENCODE_SERVER_PASSWORD: password, OPENCODE_DISABLE_AUTOUPDATE: "1" },
+      stdio: ["ignore", "ignore", "pipe"],
+      windowsHide: true,
     });
-    if (exit.code !== 0) {
-      throw new OpenCodeApiError(`Starting the OpenCode background service failed (exit code ${exit.code ?? "unknown"})${exit.stderr ? ": " + exit.stderr.slice(0, 300) : ""}`);
-    }
+    let stderr = "";
+    child.stderr?.on("data", chunk => { if (stderr.length < 2000) stderr += String(chunk); });
+    const exited = new Promise<void>(resolve => { child.once("close", () => resolve()); child.once("error", () => resolve()); });
+    const handle: ServiceHandle = { url: `http://127.0.0.1:${port}`, password };
+    this.privateServer = { child, handle };
     const deadline = Date.now() + SERVICE_START_TIMEOUT_MS;
-    let delay = 250;
+    let delay = 150;
     while (Date.now() < deadline) {
-      const handle = await readServiceFile(serviceFile(this.env));
-      if (handle !== null && (await this.ping(handle))) {
+      if (child.exitCode !== null || child.signalCode !== null) break;
+      if (await this.ping(handle)) {
         this.handle = handle;
-        this.started = true;
+        this.usedPrivate = true;
         return handle;
       }
-      await new Promise(resolve => setTimeout(resolve, delay));
-      delay = Math.min(2000, delay * 2);
+      await Promise.race([exited, new Promise(resolve => setTimeout(resolve, delay))]);
+      delay = Math.min(1000, delay * 2);
     }
-    throw new OpenCodeApiError("The OpenCode background service is starting but did not become ready within the expected time. Refresh again shortly.");
+    await this.release();
+    throw new OpenCodeApiError(`The temporary OpenCode server did not become ready${child.exitCode !== null ? ` (exit code ${child.exitCode})` : " within the expected time"}${stderr ? ": " + stderr.slice(0, 300) : ""}.`);
+  }
+
+  /** Stops the private temporary server (if this connection started one). A shared service is never touched. */
+  async release(): Promise<void> {
+    const own = this.privateServer;
+    this.privateServer = null;
+    if (own === null) return;
+    if (this.handle === own.handle) this.handle = null;
+    const { child } = own;
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, 5000);
+      child.once("close", () => { clearTimeout(timer); resolve(); });
+      // The server may own helper processes (e.g. configured MCP servers):
+      // end the whole tree on Windows so nothing is orphaned.
+      if (process.platform === "win32" && child.pid !== undefined) {
+        const systemRoot = this.env.SystemRoot ?? this.env.SYSTEMROOT ?? process.env.SystemRoot ?? "C:\\Windows";
+        const killer = spawn(join(systemRoot, "System32", "taskkill.exe"), ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+        killer.once("error", () => child.kill());
+      } else child.kill();
+    });
+  }
+
+  get privateServerRunning(): boolean {
+    const child = this.privateServer?.child;
+    return Boolean(child && child.exitCode === null && child.signalCode === null);
   }
 
   async call<T>(method: string, path: string, body?: unknown, query?: Record<string, string>): Promise<{ status: number; value: T | null; text: string }> {

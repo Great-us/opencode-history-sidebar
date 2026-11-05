@@ -1,9 +1,9 @@
 {
   "name": "opencode-history-sidebar",
   "displayName": "OpenCode History",
-  "description": "Browse local OpenCode history by workspace folder and reopen session terminals in their original working directory.",
+  "description": "Browse local OpenCode history by workspace folder and reopen session terminals in their original working directory; a static, refresh-on-demand sidebar with no background processes.",
   "publisher": "AlexWonton",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "license": "MIT",
   "engines": {
     "vscode": "^1.144.0"
@@ -32,7 +32,7 @@
   },
   "scripts": {
     "compile": "tsc -p .",
-    "test": "npm run compile && node --test out/test/shared*.js out/test/live*.js out/test/ui*.js out/test/preview-follow*.js",
+    "test": "npm run compile && node --test out/test/shared*.js out/test/ui*.js out/test/preview-follow*.js",
     "test:extension": "npm run compile && node test/run-extension.cjs",
     "vscode:prepublish": "npm run compile",
     "package": "vsce package --target win32-x64 --readme-path MARKETPLACE.md --allow-missing-repository"

@@ -9,7 +9,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { SessionTerminals } from '../src/ui/terminals';
 import { HistoryTree } from '../src/ui/tree';
 import { HistoryPreview } from '../src/ui/preview';
-import { LiveHistoryController } from '../src/ui/liveStatus';
 import * as terminalProcessModule from '../src/ui/terminalProcess';
 import { terminalProcessIdentity } from '../src/ui/terminalProcess';
 import { describeCatalogCounts, isLegacyRow, type CatalogRow } from '../src/shared/sessionCatalog';
@@ -304,23 +303,6 @@ async function uiShakedown(evidence: Record<string, unknown>): Promise<void> {
     hinted.panel.dispose();
     evidence.uiHonestMaybeTail = { offered: true, oneStepEntries: 121 };
   }
-  // 6. Live channel subscription drives the panel inside the extension host.
-  const fakeChannel = {
-    subscribeChanges(listener: (batch: { origin: 'sse' | 'reconcile' }) => void) { fakeChannel.emit = origin => { listener({ origin }); }; return { dispose: () => undefined }; },
-    liveStatus: () => ({ state: 'live' as const, source: 'trigger-reconcile', warnings: [] }),
-    pollStatChange: () => false,
-    emit: (_origin: 'sse' | 'reconcile') => undefined,
-  };
-  let signals = 0;
-  const live = new LiveHistoryController({ channel: fakeChannel, onSignal: () => { signals += 1; live.dispatch({ type: 'refresh-start' }); live.dispatch({ type: 'refresh-ok', at: Date.now() }); } });
-  try {
-    live.start();
-    assert.equal(live.current.link, 'live');
-    fakeChannel.emit('sse');
-    assert.equal(signals, 1, 'a channel batch reaches the panel');
-    assert.equal(live.current.fresh, true);
-    evidence.uiLiveChannel = { signals };
-  } finally { live.dispose(); }
 }
 
 interface RestoreResult { status: string; message: string; restored_session_ids: string[] }
@@ -332,13 +314,12 @@ interface ExtensionApi {
   view: vscode.TreeView<unknown>;
   terminals: SessionTerminals;
   catalog: {
-    liveStatus(): { state: string; warnings: string[] };
+    privateServerRunning: boolean;
     getEnginePath(): Promise<string>;
     readHistory(id: string, cursor?: string): Promise<{ entries: Array<{ id: string; text: string }>; next_cursor: string | null }>;
     recoverLegacySession(sessionId: string): Promise<RestoreResult>;
     restoreBackup(backupId: string): Promise<RestoreResult>;
   };
-  live: LiveHistoryController;
   refresh(reason?: string): Promise<unknown>;
   setArchived(value: unknown, archived: boolean): Promise<void>;
   recoverLegacy(value: unknown, confirmed?: boolean): Promise<RestoreResult>;
@@ -457,18 +438,13 @@ async function runPrimary(api: ExtensionApi, evidence: Record<string, unknown>, 
   await importSession(mainRest, envelope(ids.A, 'eh-A', dirs.a, texts('A message', 55), null), ids.A);
   await importSession(mainRest, envelope(ids.B, 'eh-B', dirs.b, texts('B message', 60), null), ids.B);
   await importSession(mainRest, envelope(ids.CHILD, 'eh-A-child', dirs.a, ['child turn 1', 'child turn 2'], ids.A), ids.CHILD);
-  // Seeding via the attached service emits SSE events: the sidebar reflects
-  // them WITHOUT any manual refresh (subscribe-before-snapshot + coalescing).
-  // The poll waits for ALL THREE imports (A, B and the nested CHILD) — the
-  // events arrive independently and any one of them may be last.
-  const sseLatency = await pollUntil('seeded sessions appear without manual refresh (SSE path)', 20000,
-    () => api.tree.forest.treeById.has(ids.A) && api.tree.forest.treeById.has(ids.B) && api.tree.forest.treeById.has(ids.CHILD));
-  evidence.ssePathLatencyMs = sseLatency;
-  // The real refresh lifecycle actually lands refresh-ok (the confirmed bug): the
-  // status must be live AND fresh after the activation/updates settle.
-  await pollUntil('live status is fresh after automatic refreshes', 15000, () => api.live.current.fresh && api.live.current.link === 'live');
-  assert.equal(api.live.current.refreshing, false);
-  evidence.liveStatusAfterSeed = { ...api.live.current };
+  // Static sidebar: seeding through the service changes nothing on screen
+  // until the user presses Refresh (no event stream, no polling).
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  assert.equal(api.tree.forest.treeById.has(ids.A), false, 'nothing appears without a manual refresh');
+  await vscode.commands.executeCommand('opencodeHistory.refresh');
+  assert.ok(api.tree.forest.treeById.has(ids.A) && api.tree.forest.treeById.has(ids.B) && api.tree.forest.treeById.has(ids.CHILD), 'Refresh brings in all seeded sessions');
+  evidence.staticRefreshSeed = true;
   const childRow = api.tree.row(ids.CHILD);
   assert.equal(childRow.parent_session_id, ids.A, 'parent relation preserved in the tree');
 
@@ -477,16 +453,14 @@ async function runPrimary(api: ExtensionApi, evidence: Record<string, unknown>, 
   evidence.secondServerStarted = true;
   const rest2 = secondRestFor(second, evidence);
   await importSession(rest2, envelope(ids.C, 'eh-C', dirs.c, ['C turn 1'], null), ids.C);
-  const externalLatency = await pollUntil('independent-process import appears without manual refresh (2s stat path)', 20000,
-    () => api.tree.forest.treeById.has(ids.C));
-  evidence.externalCommitLatencyMs = externalLatency;
-  const lastRefreshOne = api.live.current.lastRefreshAt;
-  // A SECOND independent external change must also refresh (never only the first).
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  assert.equal(api.tree.forest.treeById.has(ids.C), false, 'an independent-process commit is not picked up automatically');
+  await vscode.commands.executeCommand('opencodeHistory.refresh');
+  assert.ok(api.tree.forest.treeById.has(ids.C), 'Refresh shows the independent-process commit');
   await importSession(rest2, envelope(ids.D, 'eh-D-second-change', dirs.c, ['D turn 1'], null), `${ids.D} second external change`);
-  const externalLatencyTwo = await pollUntil('second independent external change appears', 20000,
-    () => api.tree.forest.treeById.has(ids.D));
-  evidence.externalCommitLatencyTwoMs = externalLatencyTwo;
-  evidence.lastRefreshAdvanced = (api.live.current.lastRefreshAt ?? 0) > (lastRefreshOne ?? 0);
+  await vscode.commands.executeCommand('opencodeHistory.refresh');
+  assert.ok(api.tree.forest.treeById.has(ids.D), 'a second external change also appears on the next refresh');
+  evidence.staticRefreshExternal = true;
 
   // --- 3. preview: full paging beyond the default page, then the live tail ---
   const previewA = await vscode.commands.executeCommand('opencodeHistory.preview', ids.A) as HistoryPreview;
@@ -567,32 +541,19 @@ async function runPrimary(api: ExtensionApi, evidence: Record<string, unknown>, 
     () => api.tree.forest.treeById.get(ids.C)?.row.archived === true);
   evidence.archiveSetInPrimary = true;
 
-  // --- 6. disconnect/recovery on the task-owned sandbox service ---
+  // --- 6. no background service: Refresh uses a temporary private server and stops it ---
   const serviceFile = readMainService();
   assert.ok(serviceFile?.pid, 'sandbox service pid known');
-  const samples: Array<{ at: number; channel: string; link: string; fresh: boolean }> = [];
-  const sampler = setInterval(() => {
-    samples.push({ at: Date.now(), channel: api.catalog.liveStatus().state, link: api.live.current.link, fresh: api.live.current.fresh });
-  }, 200);
-  try {
-    process.kill(serviceFile!.pid!);
-    await pollUntil('channel reports degraded after the service dies', 15000,
-      () => api.catalog.liveStatus().state === 'degraded');
-    evidence.disconnectChannelDegradedObserved = true;
-    evidence.disconnectControllerObserved = samples.some(sample => sample.link === 'reconnecting');
-    // Recovery: the extension restarts the official service itself and the
-    // status only turns fresh again through a brand-new snapshot.
-    const recoveryMs = await pollUntil('recovered to live+fresh through a new snapshot', 120000,
-      () => api.live.current.link === 'live' && api.live.current.fresh);
-    evidence.recoveryMs = recoveryMs;
-    for (const id of [ids.A, ids.B, ids.CHILD, ids.C, ids.D]) {
-      assert.ok(api.tree.forest.treeById.has(id), `session ${id} intact after disconnect/recovery`);
-    }
-    evidence.dataIntactAfterRecovery = true;
-  } finally {
-    clearInterval(sampler);
+  process.kill(serviceFile!.pid!);
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  await vscode.commands.executeCommand('opencodeHistory.refresh');
+  for (const id of [ids.A, ids.B, ids.CHILD, ids.C, ids.D]) {
+    assert.ok(api.tree.forest.treeById.has(id), `session ${id} read through the temporary private server`);
   }
-  evidence.disconnectSamples = samples.length;
+  assert.equal(api.catalog.privateServerRunning, false, 'the temporary private server is stopped right after the read');
+  const after = readMainService();
+  assert.ok(!after?.pid || after.pid === serviceFile!.pid, 'the extension did not start a new background service');
+  evidence.privateServerReadAndStopped = true;
 }
 
 /** Rest handle for the second server: the spawn helper returns its own url. */

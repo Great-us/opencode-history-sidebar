@@ -15,7 +15,7 @@ This is an unofficial community extension, independently maintained; it is not a
 - **Archive management** — archive or unarchive sessions through the engine's official API; archiving keeps the conversation body.
 - **Recoverable delete** — before anything is removed, the affected sessions are listed, a private local backup is created, and the backup is proven restorable in an isolated verification host. Deletes with unfinished messages, queued input, or detected running tasks are refused.
 - **Restore Backup** — bring deleted sessions back with their verified conversation bodies, parent/child relations, original directories, and archive state.
-- **Always-current status** — while the sidebar or a preview is visible, local data changes are detected every two seconds and the view refreshes automatically; the status line honestly reports reading, live, stale, or reconnecting states.
+- **Static and lightweight** — history is read only when you press **Refresh**; nothing runs in the background. A running OpenCode background service is reused; otherwise each read uses a temporary private server that is stopped right afterwards. A new window shows the last refresh from a small saved snapshot without starting anything.
 - **Legacy record support** — leftover V1 records are marked separately, support read-only preview and local archiving, and can be imported into the new version through an explicit, confirmed step.
 
 ## Requirements
@@ -31,12 +31,12 @@ This is an unofficial community extension, independently maintained; it is not a
 3. Expand a folder, right-click a session to preview it, archive it, or open its terminal in the original directory.
 4. Use **Delete (Recoverable)** when you want a removable record: the extension shows the exact scope first, creates and verifies a private backup, and only then deletes. **Restore Backup** brings sessions back if you change your mind.
 
-## How the live status works
+## How refreshing works
 
-- The next activation always re-reads the current records.
-- While the sidebar or any preview is visible, a lightweight database change check runs every two seconds and triggers an automatic refresh when something changed; a full inventory reconciliation runs periodically as well.
-- On a disconnect the last content stays on screen with a status label and the last successful update time; everything is re-read after reconnecting.
-- A "Running" badge is shown only from verified live evidence. When another process's running state cannot be confirmed, it stays unknown rather than being guessed.
+- The list is static: press **Refresh** to re-read it; the header shows when it was last refreshed. Archive, delete, restore and legacy import refresh once after they finish. Nothing re-reads on its own (no event stream, no polling, no focus or visibility refresh).
+- Between refreshes the extension runs no process. If the OpenCode background service is already running it is reused and never stopped; otherwise a temporary private `opencode serve` on 127.0.0.1 handles the read and is stopped right after it.
+- A new VS Code window shows the last refresh from a small snapshot in the extension's storage, without starting any process.
+- A "Running" badge reflects the moment of the last refresh. When another process's running state cannot be confirmed, it stays unknown rather than being guessed.
 
 ## Deletion, backup, and recovery
 

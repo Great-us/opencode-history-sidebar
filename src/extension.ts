@@ -1,12 +1,10 @@
 import * as vscode from 'vscode';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, rename as renameFile } from 'node:fs/promises';
 import { join, isAbsolute, resolve, relative } from 'node:path';
 import { CatalogService } from './backend/catalogService';
 import { HistoryTree, type HistoryNode } from './ui/tree';
 import { SessionTerminals } from './ui/terminals';
 import { HistoryPreview } from './ui/preview';
-import { LiveHistoryController } from './ui/liveStatus';
-import { liveStatusLabel } from './shared/liveStatus';
 import { describeCatalogCounts, isLegacyRow, type CatalogInventory, type CatalogRestoreResult, type CatalogRow } from './shared/sessionCatalog';
 
 interface PrivateTestConfig { env: NodeJS.ProcessEnv; enginePath: string; extraArgs: string[] }
@@ -77,77 +75,68 @@ export async function activate(context: vscode.ExtensionContext) {
   const previews = new Map<string, HistoryPreview>();
   let inventory: CatalogInventory | undefined;
   let refreshing: Promise<CatalogInventory> | undefined;
-  let snapshotTaken = false;
+  let refreshedAt: number | undefined;
   let lastErrorMessage = '';
   const report = (error: unknown) => { void vscode.window.showErrorMessage(`OpenCode History: ${error instanceof Error ? error.message : String(error)}`); };
-  // Always-current status: subscribe to the backend live channel (service SSE
-  // + reconcile batches), then take the activation snapshot — subscribe-before-
-  // snapshot closes the vacuum window. One single timer drives the visible
-  // cadence (src/ui/liveStatus.ts + supervisor decision on the probed Windows
-  // fs.watch silence for WAL commits): a 2-second db/WAL stat compare while
-  // the sidebar OR a preview is visible, a 60-second unconditional full API
-  // reconciliation, and immediate focus/re-show reconciliation.
-  const live = new LiveHistoryController({
-    channel: catalog,
-    onSignal: () => { void refresh('signal').catch(report); },
-    onStatus: () => updateDescription(),
-  });
+  /**
+   * Static sidebar (user decision 2026-11-05): history is read ONLY when the
+   * user presses Refresh or runs an action that changes sessions (archive,
+   * delete, restore, legacy import). No event stream, polling timer, focus,
+   * visibility or terminal-close refresh. When no OpenCode background service
+   * is running, each read uses a private temporary server that the backend
+   * stops as soon as the read finished. The last result is saved as a small
+   * JSON snapshot so a new window shows it without starting any process.
+   */
+  const snapshotFile = join(context.globalStorageUri.fsPath, 'last-inventory.v1.json');
   const updateDescription = () => {
-    live.observeChannel();
-    const status = live.current;
-    // Old `running` values lose their claim while the link is untrusted or
-    // the data is not fresh; badges re-render through the DTO of the next
-    // verified snapshot.
-    const trusted = status.link === 'live' && status.fresh;
-    if (tree.activityTrusted !== trusted) { tree.activityTrusted = trusted; tree.update(); }
     const filterLabel = tree.filter === 'active' ? 'Unarchived' : tree.filter === 'archived' ? 'Archived' : 'All';
-    view.description = [filterLabel, tree.query, liveStatusLabel(status, Date.now())].filter(Boolean).join(' · ');
+    const when = refreshedAt ? `Refreshed ${new Date(refreshedAt).toLocaleString()}` : '';
+    view.description = [filterLabel, tree.query, refreshing ? 'Refreshing…' : when].filter(Boolean).join(' · ');
     // Normal V2 sessions and legacy records are counted separately — the two
     // populations are never summed into one "normal" total.
-    const count = inventory ? `${describeCatalogCounts(inventory.sessions)} · ${tree.groups.length} groups · ${liveStatusLabel(status, Date.now())}${!status.fresh && status.lastRefreshAt !== null ? ` · last successful update at ${new Date(status.lastRefreshAt).toLocaleTimeString()}` : ''}` : '';
-    const channel = catalog.liveStatus();
-    const channelWarning = channel.state === 'degraded' ? `Live event stream interrupted, reconnecting automatically; showing the data from the last successful read (${count})${channel.warnings.length ? `\n${channel.warnings.join('\n')}` : ''}`
-      : channel.state === 'stopped' ? `Live event stream not connected (data refreshes on actions or window focus; currently showing ${count})`
-      : '';
-    if (!inventory) view.message = 'Reading local OpenCode history…';
+    const count = inventory ? `${describeCatalogCounts(inventory.sessions)} · ${tree.groups.length} groups${when ? ` · ${when}` : ''}` : '';
+    if (!inventory) view.message = refreshing ? 'Reading local OpenCode history…' : 'Press Refresh to read local OpenCode history.';
     else if (lastErrorMessage) view.message = `${lastErrorMessage}\n(Showing the data from the last successful read: ${count})`;
-    else if (status.link === 'reconnecting') view.message = channelWarning || `Live updates interrupted, recovering… (currently showing ${count})`;
-    else if (channelWarning && channel.state === 'degraded') view.message = channelWarning;
     else if (!tree.groups.length) view.message = `No matching history records (${count}). Try searching, switching the archive filter, or refreshing.`;
     else view.message = [count, ...inventory.warnings].join('\n');
   };
-  const refresh = (reason: 'manual' | 'signal' | 'timer' | 'reconnect' = 'manual'): Promise<CatalogInventory> => {
+  const applyRows = (rows: CatalogRow[]) => { tree.update(rows); updateDescription(); };
+  const saveSnapshot = async (result: CatalogInventory, at: number) => {
+    const temporary = `${snapshotFile}.tmp`;
+    await writeFile(temporary, JSON.stringify({ at, inventory: result }));
+    await renameFile(temporary, snapshotFile);
+  };
+  /** Shows the last refresh without starting any process; false when there is none. */
+  const loadSnapshot = async (): Promise<boolean> => {
+    try {
+      const saved = JSON.parse(await readFile(snapshotFile, 'utf8')) as { at?: unknown; inventory?: CatalogInventory };
+      if (typeof saved.at !== 'number' || !saved.inventory || !Array.isArray(saved.inventory.sessions)) return false;
+      inventory = saved.inventory;
+      refreshedAt = saved.at;
+      tree.archiveMode = saved.inventory.archive_mode;
+      applyRows(saved.inventory.sessions);
+      return true;
+    } catch { return false; }
+  };
+  const refresh = (): Promise<CatalogInventory> => {
     if (refreshing) return refreshing;
-    live.dispatch({ type: snapshotTaken ? 'refresh-start' : 'snapshot-start' });
-    // A real change signal (or a manual/recovery refresh) also arms the
-    // previews' honest tail hint: content may exist beyond a loaded window
-    // even when the row's updated_at did not move (review 2). A purely
-    // time-based reconciliation ('timer') must not nag with that hint.
-    const contentSignal = reason === 'signal' || reason === 'manual' || reason === 'reconnect';
-    let outcome!: { ok: true; at: number } | { ok: false; error: string };
-    refreshing = catalog.refresh().then(async result => {
+    refreshing = (async () => {
+      updateDescription();
+      const result = await catalog.refresh();
       inventory = result;
       lastErrorMessage = '';
-      snapshotTaken = true;
+      refreshedAt = Date.now();
       await terminals.reconnect(result.sessions);
       tree.archiveMode = result.archive_mode;
-      tree.update(await terminals.withOwnedWorkspaces(result.sessions));
-      updateDescription();
-      for (const [id, preview] of previews) preview.onCatalogChanged(result.sessions.find(row => row.session_id === id), { contentSignal });
-      outcome = { ok: true, at: Date.now() };
+      applyRows(await terminals.withOwnedWorkspaces(result.sessions));
+      // Open previews learn about the user-requested refresh (tail hint only; no automatic reads).
+      for (const [id, preview] of previews) preview.onCatalogChanged(result.sessions.find(row => row.session_id === id), { contentSignal: true });
+      void saveSnapshot(result, refreshedAt).catch(() => undefined);
       return result;
-    }).catch(error => {
+    })().catch(error => {
       lastErrorMessage = `Read failed: ${error instanceof Error ? error.message : String(error)}. Check the engine path and refresh.`;
-      outcome = { ok: false, error: lastErrorMessage };
       throw error;
-    }).finally(() => {
-      // Release the in-flight slot FIRST, then dispatch the outcome: a change
-      // signal that raced with this refresh (pendingSignal) must start a real
-      // trailing refresh here — returning the old promise would swallow it.
-      refreshing = undefined;
-      live.dispatch(outcome.ok ? { type: 'refresh-ok', at: outcome.at } : { type: 'refresh-fail', error: outcome.error });
-      updateDescription();
-    });
+    }).finally(() => { refreshing = undefined; updateDescription(); });
     return refreshing;
   };
   const register = (name: string, handler: (...args: any[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(`opencodeHistory.${name}`, async (...args) => { try { return await handler(...args); } catch (error) { report(error); return undefined; } }));
@@ -195,11 +184,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (existing) { existing.panel.reveal(); return existing; }
     const preview = new HistoryPreview(row, context.extensionUri, (id, cursor) => catalog.readHistory(id, cursor));
     previews.set(row.session_id, preview);
-    // Preview visibility keeps the live timer running even with the sidebar
-    // hidden: the tree being hidden must not stop preview updates.
-    context.subscriptions.push(preview.panel.onDidChangeViewState(() => { syncLiveTimer(); }));
-    preview.panel.onDidDispose(() => { previews.delete(row.session_id); syncLiveTimer(); });
-    syncLiveTimer();
+    preview.panel.onDidDispose(() => { previews.delete(row.session_id); });
     await preview.load();
     return preview;
   });
@@ -247,38 +232,7 @@ export async function activate(context: vscode.ExtensionContext) {
     return result;
   };
   register('delete', (value: HistoryNode | string) => deleteSession(value));
-  // One single timer for the whole visible cadence (no duplicate timers, no
-  // polling framework): while the sidebar OR any preview is visible, a
-  // 2-second lightweight db+WAL stat compare via the backend's
-  // pollStatChange() and, every 60 ticks, one unconditional full API
-  // reconciliation ('timer' — no preview tail hint). Focus/re-show reconcile
-  // immediately. A hidden tree with a visible preview keeps updating. The
-  // same tick also redraws the status line so the relative "x 秒前" label
-  // keeps advancing — no extra timer exists for that.
-  const STAT_TICK_MS = 2000;
-  const FULL_RECONCILE_TICKS = 30;
-  let tick = 0;
-  let liveTimer: NodeJS.Timeout | undefined;
-  const anySurfaceVisible = () => view.visible || [...previews.values()].some(preview => preview.panel.visible);
-  const liveTick = () => {
-    live.observeChannel();
-    tick += 1;
-    if (tick % FULL_RECONCILE_TICKS === 0) { void refresh('timer').catch(report); return; }
-    live.reconcile();
-    updateDescription();
-  };
-  const syncLiveTimer = () => {
-    if (anySurfaceVisible()) {
-      if (liveTimer === undefined) { tick = 0; liveTimer = setInterval(liveTick, STAT_TICK_MS); }
-    } else if (liveTimer !== undefined) { clearInterval(liveTimer); liveTimer = undefined; }
-  };
-  const reconcileNow = (reason: 'timer' | 'reconnect' = 'timer') => { live.observeChannel(); void refresh(reason).catch(report); };
-  if (view.visible) syncLiveTimer();
-  context.subscriptions.push(tree, view, terminals, live,
-    { dispose: () => { if (liveTimer !== undefined) { clearInterval(liveTimer); liveTimer = undefined; } } },
-    terminals.onDidCloseOwnedTerminal(() => { if (anySurfaceVisible()) void refresh().catch(report); }),
-    view.onDidChangeVisibility(event => { if (event.visible) { syncLiveTimer(); reconcileNow(); } else syncLiveTimer(); }),
-    vscode.window.onDidChangeWindowState(state => { if (state.focused && anySurfaceVisible()) reconcileNow(); }),
+  context.subscriptions.push(tree, view, terminals,
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('opencodeHistory.enginePath') && !test) {
         const path = vscode.workspace.getConfiguration('opencodeHistory').get<string>('enginePath');
@@ -286,11 +240,23 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }));
   updateDescription();
-  // Subscribe BEFORE the activation snapshot (live-probe §4.1): the stream
-  // then already covers writes that land while the snapshot is in flight.
-  live.start();
-  const ready = refresh();
-  void ready.catch(report);
+  // Activation starts nothing: the last refresh is shown from its snapshot.
+  // Only a first-ever start (no snapshot) reads once, when the view is shown.
+  let ready: Promise<CatalogInventory | undefined>;
+  if (test) { ready = refresh(); void ready.catch(report); }
+  else {
+    ready = loadSnapshot().then(async found => {
+      if (found) return inventory;
+      if (!view.visible) {
+        await new Promise<void>(resolve => {
+          const subscription = view.onDidChangeVisibility(event => { if (event.visible) { subscription.dispose(); resolve(); } });
+          context.subscriptions.push(subscription);
+        });
+      }
+      return refresh();
+    });
+    void ready.catch(report);
+  }
   if (test && context.extensionMode === vscode.ExtensionMode.Development && process.env.OPENCODE_HISTORY_TEST_BOOTSTRAP === '1') {
     // The ordinary --extensionTestsPath host deliberately uses in-memory globalState.
     // An isolated development host is necessary to verify real disk persistence and reload.
@@ -303,7 +269,7 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   }
   // Only the isolated development/test host receives direct validation hooks.
-  return test ? { ready, tree, view, terminals, catalog, live, refresh, setArchived, recoverLegacy, deleteSession, previews, globalState: context.globalState, storagePath: join(context.globalStorageUri.fsPath, '..') } : { ready };
+  return test ? { ready, tree, view, terminals, catalog, refresh, setArchived, recoverLegacy, deleteSession, previews, globalState: context.globalState, storagePath: join(context.globalStorageUri.fsPath, '..') } : { ready };
 }
 
 export async function deactivate(): Promise<void> { await service?.dispose(); service = undefined; }

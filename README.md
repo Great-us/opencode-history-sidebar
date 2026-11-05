@@ -14,7 +14,7 @@ Unofficial community VS Code extension for browsing and managing local OpenCode 
 - **Delete (Recoverable)** lists every affected session first, then creates a private local backup and verifies it can actually be restored before anything is removed. It refuses to delete when unfinished messages, queued input, known running tasks, or changes during the backup are detected.
 - Click **Restore Backup** in the view header to pick a backup and restore it. The restore scope is the verified conversation bodies, parent/child relations, original directories, and archive metadata; your project files are not part of this backup.
 
-The next open re-reads the current records. While the sidebar or a preview is visible, local data changes are detected every two seconds and the view updates automatically after a change; a full inventory reconciliation also runs periodically. On a disconnect the last content stays on screen with a status label and the last update time, and everything is re-read after reconnecting. When the running state of another process cannot be confirmed, it stays unknown.
+The list is **static** (since 0.2.0): it is re-read only when you press **Refresh** or after an action that changes sessions (archive, delete, restore, legacy import), and the header shows when it was last refreshed. There is no event stream, polling, or focus/visibility refresh. Between refreshes the extension runs no process: an already running OpenCode background service is reused and never stopped; when none is running, each read uses a temporary private `opencode serve` on 127.0.0.1 that is stopped (with its process tree) right after the read — the resident background service is no longer started by the extension. A new VS Code window shows the last refresh from a small JSON snapshot in the extension's storage without starting anything; only a first-ever start reads once. Previews load the Markdown renderer on first use, render only new entries on "Load More", and release their page when the tab is hidden. When the running state of another process cannot be confirmed, it stays unknown.
 
 Before deleting, stop tasks that still use the affected sessions in other windows, and do not keep writing while the deletion runs. OpenCode 2.2.5 cannot provide a cross-process atomic delete; when you cannot confirm that other tasks have stopped, archive instead of deleting. The extension reports known partial successes and unconfirmed outcomes, but it cannot promise to catch every concurrent change after its final recheck.
 
@@ -70,7 +70,7 @@ MIT. Reuses grouping, paging, rendering, and terminal-management implementations
 - **删除（可恢复）**会列出受影响的会话，并先生成本地备份、验证恢复能力。检测到未完成消息、排队输入、已知运行任务或备份期间的变化时会拒绝删除。
 - 点标题栏的 **恢复备份**选择记录还原。恢复范围是已验证的对话正文、父子关系、原目录及归档等元数据，项目文件不在此备份范围。
 
-下次打开会重新读取当前记录。侧栏或预览可见时，每两秒检测本机数据变化，变化后自动更新；同时定期核对完整清单。断线时保留上次内容并标出状态和最后更新时间，重连后重新读取。其他进程的运行状态无法确认时保留为未知。
+列表是**静态**的（0.2.0 起）：只有点“刷新”或执行会改变会话的操作（归档、删除、恢复、导入旧版记录）后才重新读取，标题栏显示上次刷新时间。没有事件流、轮询、切回窗口或显示侧栏时的自动刷新。两次刷新之间扩展不运行任何进程：已在运行的 OpenCode 后台服务会被复用且绝不停止；没有后台服务时，每次读取临时启动一个仅监听 127.0.0.1 的私有 `opencode serve`，读完立即连同子进程一起停止——扩展不再启动常驻后台服务。新开 VS Code 窗口直接显示扩展存储中上次刷新的小型 JSON 快照，不启动任何进程；只有首次使用时会读取一次。预览首次打开才加载 Markdown 渲染器，“加载更多”只渲染新内容，标签页隐藏时释放页面。其他进程的运行状态无法确认时保留为未知。
 
 删除前请先停止其他窗口中相关会话的任务，删除过程中不要继续写入。OpenCode 2.2.5 无法提供跨进程的原子删除；无法确认其他任务已停止时，请先归档或取消。本扩展会报告已知的部分成功或未确认结果，无法保证发现最终复核之后所有并发变化。
 

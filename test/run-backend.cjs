@@ -9,7 +9,6 @@ const tests = [
   path.join(__dirname, "..", "out", "test", "backend-catalog.test.js"),
   path.join(__dirname, "..", "out", "test", "backend-cold-start.test.js"),
   path.join(__dirname, "..", "out", "test", "backend-legacy.test.js"),
-  path.join(__dirname, "..", "out", "test", "backend-live.test.js"),
 ];
 
 // The integration suites share one isolated sandbox home, so the files must

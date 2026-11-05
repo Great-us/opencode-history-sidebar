@@ -195,7 +195,7 @@ export class CatalogService {
 
   // ---------------------------------------------------------------- reads ---
 
-  async refresh(): Promise<CatalogInventory> {
+  private async refreshNow(): Promise<CatalogInventory> {
     this.assertLive();
     // Baseline BEFORE the reads: an external write landing mid-refresh stays
     // detectable by the next stat check (interim review item).
@@ -223,7 +223,7 @@ export class CatalogService {
     const engine = await this.resolveEngine(false);
     const warnings: string[] = [];
     if (this.connection.startedByExtension()) {
-      warnings.push("The OpenCode background service was not running before; this extension started it with the official command. Existing user services were not modified.");
+      warnings.push("No OpenCode background service was running; this read used a temporary private OpenCode server that is stopped right after the read.");
     }
     const status = this.channel.current();
     if (status.state === "degraded") {
@@ -245,7 +245,7 @@ export class CatalogService {
     return inventory;
   }
 
-  async readHistory(sessionId: string, cursor?: string): Promise<CatalogHistoryPage> {
+  private async readHistoryNow(sessionId: string, cursor?: string): Promise<CatalogHistoryPage> {
     this.assertLive();
     // The opaque cursor carries its own direction: combining it with `order`
     // is rejected by the server (probe evidence: page 2 uses cursor alone).
@@ -351,7 +351,7 @@ export class CatalogService {
 
   // ------------------------------------------------------------- mutations ---
 
-  async setArchived(sessionId: string, archived: boolean): Promise<void> {
+  private async setArchivedNow(sessionId: string, archived: boolean): Promise<void> {
     this.assertLive();
     try {
       const { status } = await this.connection.call<unknown>(
@@ -401,7 +401,7 @@ export class CatalogService {
    * NO fallback re-DELETE (a retry re-enters the full fresh path). Deleted
    * ids are tombstoned against v1 remnants.
    */
-  async deleteSession(sessionId: string, inUseIds?: ReadonlySet<string>): Promise<CatalogDeleteResult> {
+  private async deleteSessionNow(sessionId: string, inUseIds?: ReadonlySet<string>): Promise<CatalogDeleteResult> {
     this.assertLive();
     const all = await pageAll<SessionInfo>(
       query => this.connection.call<unknown>("GET", "/api/session", undefined, query),
@@ -766,7 +766,7 @@ export class CatalogService {
   }
 
   /** Restore parent-first; existing sessions are reported, never overwritten. */
-  async restoreBackup(backupId: string): Promise<CatalogRestoreResult> {
+  private async restoreBackupNow(backupId: string): Promise<CatalogRestoreResult> {
     this.assertLive();
     const manifest = await this.backups.read(backupId);
     const members = this.parentsFirstManifest(manifest);
@@ -839,7 +839,7 @@ export class CatalogService {
    * untouched; no migration flag is ever touched; conflicts are reported,
    * never overwritten (server-side 409 semantics).
    */
-  async recoverLegacySession(sessionId: string): Promise<CatalogRestoreResult> {
+  private async recoverLegacySessionNow(sessionId: string): Promise<CatalogRestoreResult> {
     this.assertLive();
     const local = await LegacyLocalState.load(this.storagePath);
     const legacy = readLegacyCandidates(this.env, local.tombstoneIds(), local.archivedIds());
@@ -1021,6 +1021,7 @@ export class CatalogService {
   async dispose(): Promise<void> {
     this.disposed = true;
     this.channel.dispose();
+    await this.connection.release().catch(() => undefined);
     // The shared user service is deliberately NOT stopped here (supervisor
     // decision); only test code stops services it started itself.
   }
@@ -1163,6 +1164,39 @@ export class CatalogService {
     for (const member of manifest.members) visit(member);
     return ordered;
   }
+
+  // ------------------------------------------------- resource lifetime ---
+
+  /**
+   * Every public operation that talks to OpenCode runs inside `using`: when
+   * the last concurrent operation finishes, a private temporary server (used
+   * only when no background service was running) is stopped. Between
+   * user-triggered operations the extension then owns no OpenCode process.
+   */
+  private active = 0;
+  private async using<T>(operation: () => Promise<T>): Promise<T> {
+    this.active++;
+    try { return await operation(); }
+    finally {
+      this.active--;
+      if (this.active === 0) await this.connection.release().catch(() => undefined);
+    }
+  }
+
+  /** True while a private temporary server started by this backend is alive. */
+  get privateServerRunning(): boolean { return this.connection.privateServerRunning; }
+
+  refresh(): Promise<CatalogInventory> { return this.using(() => this.refreshNow()); }
+
+  readHistory(sessionId: string, cursor?: string): Promise<CatalogHistoryPage> { return this.using(() => this.readHistoryNow(sessionId, cursor)); }
+
+  setArchived(sessionId: string, archived: boolean): Promise<void> { return this.using(() => this.setArchivedNow(sessionId, archived)); }
+
+  deleteSession(sessionId: string, inUseIds?: ReadonlySet<string>): Promise<CatalogDeleteResult> { return this.using(() => this.deleteSessionNow(sessionId, inUseIds)); }
+
+  restoreBackup(backupId: string): Promise<CatalogRestoreResult> { return this.using(() => this.restoreBackupNow(backupId)); }
+
+  recoverLegacySession(sessionId: string): Promise<CatalogRestoreResult> { return this.using(() => this.recoverLegacySessionNow(sessionId)); }
 }
 
 /** Concatenated text of an assistant content array (semantic compare helper). */

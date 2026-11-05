@@ -48,9 +48,10 @@ export class HistoryPreview {
   /** catalogRowTime of the row when its transcript was last confirmed loaded. */
   private seenRowTime = 0;
   private disposed = false;
+  private readonly rendered = new WeakMap<LogEntry, string>();
   private readonly nonce = randomBytes(18).toString('base64');
   constructor(private row: CatalogRow, private readonly extensionUri: vscode.Uri, private readonly read: (id: string, cursor?: string) => Promise<CatalogHistoryPage>) {
-    this.panel = vscode.window.createWebviewPanel('opencodeHistory.preview', `Preview · ${row.title || row.session_id}`, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')], retainContextWhenHidden: true });
+    this.panel = vscode.window.createWebviewPanel('opencodeHistory.preview', `Preview · ${row.title || row.session_id}`, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')], retainContextWhenHidden: false });
     this.panel.webview.onDidReceiveMessage(message => {
       if (message?.type === 'more' && (this.cursor || this.error) && !this.loading) void this.load(this.cursor ?? undefined);
       if (message?.type === 'latest' && !this.loading) void this.loadLatest();
@@ -202,7 +203,7 @@ export class HistoryPreview {
     const legacyNotice = this.legacy
       ? `<p class="notice">Legacy record (read-only preview). Run "Import Legacy Record into New Version" before opening a terminal or deleting.</p>`
       : '';
-    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${this.nonce}'; img-src 'none'; font-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${css}"></head><body><h1>${escapeHtml(this.row.title || this.row.session_id)}</h1><p class="muted">Read-only preview · ${escapeHtml(this.row.workspace)}<br>${escapeHtml(this.row.session_id)}</p>${legacyNotice}${this.warning ? `<p class="notice">${escapeHtml(this.warning)}</p>` : ''}${tailNotice}${freshness ? `<p class="muted">${escapeHtml(freshness)}</p>` : ''}${renderEntries(this.entries)}${this.error ? `<p role="alert">${escapeHtml(this.error)}</p>` : ''}<footer><p>${this.entries.length} entries loaded${this.cursor ? ', more available' : this.loading ? '' : ' · end reached'}</p>${this.loading ? '<p>Reading…</p>' : ''}${!this.loading && (this.cursor || this.error) ? '<button id="more">Load More / Retry</button>' : ''}</footer><script nonce="${this.nonce}" src="${script}"></script></body></html>`;
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${this.nonce}'; img-src 'none'; font-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${css}"></head><body><h1>${escapeHtml(this.row.title || this.row.session_id)}</h1><p class="muted">Read-only preview · ${escapeHtml(this.row.workspace)}<br>${escapeHtml(this.row.session_id)}</p>${legacyNotice}${this.warning ? `<p class="notice">${escapeHtml(this.warning)}</p>` : ''}${tailNotice}${freshness ? `<p class="muted">${escapeHtml(freshness)}</p>` : ''}${renderEntries(this.entries, this.rendered)}${this.error ? `<p role="alert">${escapeHtml(this.error)}</p>` : ''}<footer><p>${this.entries.length} entries loaded${this.cursor ? ', more available' : this.loading ? '' : ' · end reached'}</p>${this.loading ? '<p>Reading…</p>' : ''}${!this.loading && (this.cursor || this.error) ? '<button id="more">Load More / Retry</button>' : ''}</footer><script nonce="${this.nonce}" src="${script}"></script></body></html>`;
   }
   private render(): void { if (!this.disposed) this.panel.webview.html = this.html(); }
 }
